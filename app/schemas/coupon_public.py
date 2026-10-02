@@ -54,3 +54,12 @@ class VerifyResponse(BaseModel):
     fail_count: int
     last_verified_at: datetime | None
     success_rate: float | None
+
+
+class VerificationHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    worked: bool
+    created_at: datetime
+    note: str | None = None

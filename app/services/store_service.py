@@ -57,3 +57,15 @@ async def update_store(db: AsyncSession, store: Store, payload: StoreUpdate) -> 
 async def delete_store(db: AsyncSession, store: Store) -> None:
     await db.delete(store)
     await db.commit()
+
+
+async def autocomplete_stores(
+    db: AsyncSession, query: str, limit: int = 10
+) -> list[str]:
+    result = await db.execute(
+        select(Store.name)
+        .where(Store.name.ilike(f"%{query}%"))
+        .order_by(Store.name)
+        .limit(limit)
+    )
+    return result.scalars().all()

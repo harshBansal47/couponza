@@ -131,3 +131,15 @@ async def record_verification(
     await db.commit()
     await db.refresh(coupon)
     return coupon
+
+
+async def get_verification_history(
+    db: AsyncSession, coupon_id: uuid.UUID, limit: int = 50
+) -> Sequence[CouponVerification]:
+    result = await db.execute(
+        select(CouponVerification)
+        .where(CouponVerification.coupon_id == coupon_id)
+        .order_by(CouponVerification.created_at.desc())
+        .limit(limit)
+    )
+    return result.scalars().all()

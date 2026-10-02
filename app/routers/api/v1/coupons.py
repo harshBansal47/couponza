@@ -18,6 +18,7 @@ from app.schemas.coupon_public import (
     VerifyRequest,
     VerifyResponse,
     compute_success_rate,
+    VerificationHistoryItem,
 )
 from app.services import coupon_service
 from app.services.coupon_service import AlreadyVerifiedRecentlyError
@@ -115,6 +116,20 @@ async def verify_coupon(
         last_verified_at=updated.last_verified_at,
         success_rate=compute_success_rate(updated.success_count, updated.fail_count),
     )
+
+
+@router.get("/{coupon_id}/verification-history", response_model=list[VerificationHistoryItem])
+async def get_verification_history(
+    coupon_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> list[VerificationHistoryItem]:
+    """Get verification history for a coupon (for trust timeline display)."""
+    coupon = await coupon_service.get_coupon(db, coupon_id)
+    if coupon is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
+    history = await coupon_service.get_verification_history(db, coupon_id, limit)
+    return [VerificationHistoryItem.model_validate(v) for v in history]
 
 
 # ------------------------------------------------------------- staff management

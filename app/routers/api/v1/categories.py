@@ -41,6 +41,16 @@ async def get_category_by_slug(slug: str, db: AsyncSession = Depends(get_db)) ->
     return category
 
 
+@router.get("/autocomplete", response_model=list[str])
+async def autocomplete_categories(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(10, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Return category names matching the query for search autocomplete."""
+    return await category_service.autocomplete_categories(db, q, limit)
+
+
 @router.get("/{category_id}", response_model=CategoryRead)
 async def get_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Category:
     category = await category_service.get_category(db, category_id)

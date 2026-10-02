@@ -38,6 +38,16 @@ async def get_store_by_slug(slug: str, db: AsyncSession = Depends(get_db)) -> St
     return store
 
 
+@router.get("/autocomplete", response_model=list[str])
+async def autocomplete_stores(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(10, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Return store names matching the query for search autocomplete."""
+    return await store_service.autocomplete_stores(db, q, limit)
+
+
 @router.get("/{store_id}", response_model=StoreRead)
 async def get_store(store_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Store:
     store = await store_service.get_store(db, store_id)
