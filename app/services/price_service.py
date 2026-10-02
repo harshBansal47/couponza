@@ -165,9 +165,7 @@ async def record_price(db: AsyncSession, product: Product, payload: PricePointCr
     return point
 
 
-async def autocomplete_products(
-    db: AsyncSession, query: str, limit: int = 10
-) -> list[str]:
+async def autocomplete_products(db: AsyncSession, query: str, limit: int = 10) -> list[str]:
     result = await db.execute(
         select(Product.name)
         .where(Product.name.ilike(f"%{query}%"))

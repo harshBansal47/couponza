@@ -199,3 +199,78 @@ async def test_verify_success_rate_reflects_in_get(client, admin_headers):
 async def test_verify_nonexistent_coupon_404s(client):
     resp = await client.post(f"{API}/{uuid.uuid4()}/verify", json={"worked": True})
     assert resp.status_code == 404
+
+
+async def test_verification_history_endpoint(client, admin_headers):
+    """Test the verification history endpoint returns history items."""
+    store_id, cat_id = await _store_and_category(client, admin_headers)
+    coupon = (await client.post(API, json=_payload(store_id, cat_id), headers=admin_headers)).json()
+
+    # Add some verifications via direct API (simulating different IPs)
+    # We can't easily test different IPs, but we can test the endpoint exists
+    history = await client.get(f"{API}/{coupon['id']}/verification-history")
+    assert history.status_code == 200
+    data = history.json()
+    assert isinstance(data, list)
+    # Initially empty
+    assert len(data) == 0
+
+    # After a verification
+    await client.post(f"{API}/{coupon['id']}/verify", json={"worked": True})
+    history = await client.get(f"{API}/{coupon['id']}/verification-history")
+    assert history.status_code == 200
+    data = history.json()
+    assert len(data) == 1
+    assert data[0]["worked"] is True
+    assert "id" in data[0]
+    assert "created_at" in data[0]
+
+
+async def test_verification_history_limit(client, admin_headers):
+    """Test the limit parameter on verification history."""
+    store_id, cat_id = await _store_and_category(client, admin_headers)
+    coupon = (await client.post(API, json=_payload(store_id, cat_id), headers=admin_headers)).json()
+
+    history = await client.get(f"{API}/{coupon['id']}/verification-history?limit=5")
+    assert history.status_code == 200
+    data = history.json()
+    assert len(data) <= 5
+
+
+async def test_verify_accepts_optional_note(client, admin_headers):
+    """A conditional code needs to explain itself, not just vote yes/no."""
+    store_id, cat_id = await _store_and_category(client, admin_headers)
+    coupon = (await client.post(API, json=_payload(store_id, cat_id), headers=admin_headers)).json()
+
+    resp = await client.post(
+        f"{API}/{coupon['id']}/verify",
+        json={"worked": True, "note": "Works, but excludes sale items."},
+    )
+    assert resp.status_code == 200
+
+    history = await client.get(f"{API}/{coupon['id']}/verification-history")
+    assert history.json()[0]["note"] == "Works, but excludes sale items."
+
+
+async def test_verify_rejects_overlong_note(client, admin_headers):
+    store_id, cat_id = await _store_and_category(client, admin_headers)
+    coupon = (await client.post(API, json=_payload(store_id, cat_id), headers=admin_headers)).json()
+
+    resp = await client.post(
+        f"{API}/{coupon['id']}/verify",
+        json={"worked": True, "note": "x" * 281},
+    )
+    assert resp.status_code == 422
+
+
+async def test_verification_history_never_exposes_ip_hash(client, admin_headers):
+    """Visitors get the aggregate signal, never a per-voter identifier."""
+    store_id, cat_id = await _store_and_category(client, admin_headers)
+    coupon = (await client.post(API, json=_payload(store_id, cat_id), headers=admin_headers)).json()
+
+    await client.post(f"{API}/{coupon['id']}/verify", json={"worked": True})
+
+    history = await client.get(f"{API}/{coupon['id']}/verification-history")
+    item = history.json()[0]
+    assert set(item) == {"id", "worked", "created_at", "note"}
+    assert "ip_hash" not in item

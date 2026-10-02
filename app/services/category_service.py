@@ -74,9 +74,7 @@ async def delete_category(db: AsyncSession, category: Category) -> None:
     await db.commit()
 
 
-async def autocomplete_categories(
-    db: AsyncSession, query: str, limit: int = 10
-) -> list[str]:
+async def autocomplete_categories(db: AsyncSession, query: str, limit: int = 10) -> list[str]:
     result = await db.execute(
         select(Category.name)
         .where(Category.name.ilike(f"%{query}%"))

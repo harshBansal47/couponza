@@ -6,7 +6,7 @@ and gives an audit trail, without storing anything raw and identifying.
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -21,3 +21,7 @@ class CouponVerification(Base, UUIDPKMixin, TimestampMixin):
     )
     ip_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     worked: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Optional free text from the reporter ("code worked, min. spend excluded").
+    # Shown on the coupon page as the reason behind a vote — useful when a code
+    # works conditionally, which a bare worked/didn't-work flag cannot express.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

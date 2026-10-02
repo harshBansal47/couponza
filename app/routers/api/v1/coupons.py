@@ -15,10 +15,10 @@ from app.models.user import Role, User
 from app.schemas.coupon import CouponCreate, CouponRead, CouponUpdate
 from app.schemas.coupon_public import (
     CouponPublicRead,
+    VerificationHistoryItem,
     VerifyRequest,
     VerifyResponse,
     compute_success_rate,
-    VerificationHistoryItem,
 )
 from app.services import coupon_service
 from app.services.coupon_service import AlreadyVerifiedRecentlyError
@@ -102,7 +102,11 @@ async def verify_coupon(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
     try:
         updated = await coupon_service.record_verification(
-            db, coupon, worked=payload.worked, ip_hash=hash_ip(client_ip(request))
+            db,
+            coupon,
+            worked=payload.worked,
+            ip_hash=hash_ip(client_ip(request)),
+            note=payload.note,
         )
     except AlreadyVerifiedRecentlyError as exc:
         raise HTTPException(

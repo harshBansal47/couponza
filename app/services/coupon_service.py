@@ -109,7 +109,12 @@ class AlreadyVerifiedRecentlyError(Exception):
 
 
 async def record_verification(
-    db: AsyncSession, coupon: Coupon, *, worked: bool, ip_hash: str
+    db: AsyncSession,
+    coupon: Coupon,
+    *,
+    worked: bool,
+    ip_hash: str,
+    note: str | None = None,
 ) -> Coupon:
     cutoff = datetime.now(UTC) - VERIFICATION_COOLDOWN
     recent = await db.execute(
@@ -122,7 +127,9 @@ async def record_verification(
     if recent.scalar_one_or_none() is not None:
         raise AlreadyVerifiedRecentlyError
 
-    db.add(CouponVerification(coupon_id=coupon.id, ip_hash=ip_hash, worked=worked))
+    db.add(
+        CouponVerification(coupon_id=coupon.id, ip_hash=ip_hash, worked=worked, note=note or None)
+    )
     if worked:
         coupon.success_count += 1
     else:

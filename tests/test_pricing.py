@@ -145,3 +145,37 @@ async def test_price_point_requires_real_coupon(
         headers=admin_headers,
     )
     assert resp.status_code == 404
+
+
+async def test_product_autocomplete(client: AsyncClient, admin_headers, async_session_maker):
+    store, cat = await _make_store_and_category(async_session_maker)
+    
+    for name in ("Kurta Red", "Kurta Blue", "Jeans Black", "Shoes White"):
+        await client.post(
+            "/api/v1/products",
+            json={"name": name, "store_id": str(store.id), "category_id": str(cat.id)},
+            headers=admin_headers,
+        )
+
+    hits = await client.get("/api/v1/products/autocomplete", params={"q": "kurta"})
+    assert hits.status_code == 200
+    data = hits.json()
+    assert isinstance(data, list)
+    assert "Kurta Red" in data
+    assert "Kurta Blue" in data
+    assert "Jeans Black" not in data
+
+async def test_product_autocomplete_limit(client: AsyncClient, admin_headers, async_session_maker):
+    store, cat = await _make_store_and_category(async_session_maker)
+    
+    for i in range(15):
+        await client.post(
+            "/api/v1/products",
+            json={"name": f"Product {i}", "store_id": str(store.id), "category_id": str(cat.id)},
+            headers=admin_headers,
+        )
+
+    hits = await client.get("/api/v1/products/autocomplete", params={"q": "product", "limit": 5})
+    assert hits.status_code == 200
+    data = hits.json()
+    assert len(data) == 5

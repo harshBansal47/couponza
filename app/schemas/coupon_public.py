@@ -8,7 +8,7 @@ affiliate link straight out of the API response.
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.coupon import DiscountType
 
@@ -47,6 +47,9 @@ class CouponPublicRead(BaseModel):
 
 class VerifyRequest(BaseModel):
     worked: bool
+    # Optional context from the reporter. Capped at 280 chars because it is
+    # shown verbatim on the coupon page, so it must not become a message board.
+    note: str | None = Field(default=None, max_length=280)
 
 
 class VerifyResponse(BaseModel):
@@ -57,6 +60,12 @@ class VerifyResponse(BaseModel):
 
 
 class VerificationHistoryItem(BaseModel):
+    """One community vote.
+
+    Deliberately excludes ip_hash: visitors get the aggregate signal
+    ("12 people, 10 worked") without any per-voter identifier leaving the server.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

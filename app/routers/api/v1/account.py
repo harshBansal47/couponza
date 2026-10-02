@@ -41,9 +41,7 @@ async def list_saved_stores(
 ) -> list[SavedItemRead]:
     result = await db.execute(select(SavedStore).where(SavedStore.user_id == user.id))
     rows = result.scalars().all()
-    return [
-        SavedItemRead(kind="store", item_id=row.store_id, saved_id=row.id) for row in rows
-    ]
+    return [SavedItemRead(kind="store", item_id=row.store_id, saved_id=row.id) for row in rows]
 
 
 @router.post("/saved-stores/{store_id}", status_code=status.HTTP_201_CREATED)
@@ -101,7 +99,9 @@ async def save_coupon(
     if await db.get(Coupon, coupon_id) is None:
         raise HTTPException(status_code=404, detail="Coupon not found")
     exists = await db.execute(
-        select(SavedCoupon).where(SavedCoupon.user_id == user.id, SavedCoupon.coupon_id == coupon_id)
+        select(SavedCoupon).where(
+            SavedCoupon.user_id == user.id, SavedCoupon.coupon_id == coupon_id
+        )
     )
     if exists.scalar_one_or_none() is None:
         db.add(SavedCoupon(user_id=user.id, coupon_id=coupon_id))
@@ -116,7 +116,9 @@ async def unsave_coupon(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     result = await db.execute(
-        select(SavedCoupon).where(SavedCoupon.user_id == user.id, SavedCoupon.coupon_id == coupon_id)
+        select(SavedCoupon).where(
+            SavedCoupon.user_id == user.id, SavedCoupon.coupon_id == coupon_id
+        )
     )
     row = result.scalar_one_or_none()
     if row is not None:

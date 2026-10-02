@@ -81,3 +81,25 @@ async def test_rbac(client, user_headers, editor_headers, admin_headers):
 
     assert (await client.delete(f"{API}/{cat_id}", headers=editor_headers)).status_code == 403
     assert (await client.delete(f"{API}/{cat_id}", headers=admin_headers)).status_code == 204
+
+
+async def test_category_autocomplete(client, admin_headers):
+    for name in ("Electronics", "Electronics Accessories", "Fashion", "Home & Garden"):
+        await client.post(API, json={"name": name}, headers=admin_headers)
+
+    hits = await client.get(f"{API}/autocomplete", params={"q": "electron"})
+    assert hits.status_code == 200
+    data = hits.json()
+    assert isinstance(data, list)
+    assert "Electronics" in data
+    assert "Electronics Accessories" in data
+    assert "Fashion" not in data
+
+async def test_category_autocomplete_limit(client, admin_headers):
+    for i in range(15):
+        await client.post(API, json={"name": f"Category {i}"}, headers=admin_headers)
+
+    hits = await client.get(f"{API}/autocomplete", params={"q": "category", "limit": 5})
+    assert hits.status_code == 200
+    data = hits.json()
+    assert len(data) == 5
