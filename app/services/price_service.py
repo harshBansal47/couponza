@@ -163,3 +163,15 @@ async def record_price(db: AsyncSession, product: Product, payload: PricePointCr
     await db.refresh(product)
     await db.refresh(point)
     return point
+
+
+async def autocomplete_products(
+    db: AsyncSession, query: str, limit: int = 10
+) -> list[str]:
+    result = await db.execute(
+        select(Product.name)
+        .where(Product.name.ilike(f"%{query}%"))
+        .order_by(Product.name)
+        .limit(limit)
+    )
+    return result.scalars().all()

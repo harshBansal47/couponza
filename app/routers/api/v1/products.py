@@ -60,6 +60,16 @@ async def get_product_by_slug(slug: str, db: AsyncSession = Depends(get_db)) -> 
     return await _with_effective(db, product)
 
 
+@router.get("/autocomplete", response_model=list[str])
+async def autocomplete_products(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(10, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Return product names matching the query for search autocomplete."""
+    return await price_service.autocomplete_products(db, q, limit)
+
+
 @router.get("/{product_id}", response_model=ProductRead)
 async def get_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProductRead:
     product = await price_service.get_product(db, product_id)
