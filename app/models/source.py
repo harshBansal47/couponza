@@ -14,6 +14,7 @@ class SourceKind(str, enum.Enum):
     csv = "csv"
     static = "static"  # inline offer list in config — used for tests and seed data
     feed = "feed"  # JSON over HTTP — the path to real automated sources
+    awin = "awin"  # Awin (Affiliate Window) API — global affiliate network
 
 
 class Source(Base, UUIDPKMixin, TimestampMixin):
@@ -22,6 +23,9 @@ class Source(Base, UUIDPKMixin, TimestampMixin):
     csv:    {"path": "/data/offers.csv", "default_category_slug": "general"}
     static: {"offers": [{...RawOffer fields...}]}
     feed:   {"url": "https://example.com/offers.json"}  # a JSON list, or {"offers": [...]}
+    awin:   {"api_key": "...", "publisher_id": "...", "advertiser_ids": [...],
+             "program_status": "active", "deal_types": ["coupon", "deal", "sale"],
+             "currency": "USD", "regions": ["US", "GB", "DE", "FR"]}
     """
 
     __tablename__ = "sources"

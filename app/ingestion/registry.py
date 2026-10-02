@@ -1,4 +1,5 @@
 from app.ingestion.base import SourceAdapter
+from app.ingestion.sources.awin import AwinSource
 from app.ingestion.sources.csv_source import CsvSource
 from app.ingestion.sources.feed import FeedSource
 from app.ingestion.sources.static import StaticSource
@@ -8,6 +9,7 @@ _ADAPTERS: dict[SourceKind, type] = {
     SourceKind.csv: CsvSource,
     SourceKind.static: StaticSource,
     SourceKind.feed: FeedSource,
+    SourceKind.awin: AwinSource,
 }
 
 
