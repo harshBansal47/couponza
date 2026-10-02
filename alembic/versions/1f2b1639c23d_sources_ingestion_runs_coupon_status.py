@@ -51,6 +51,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_ingestion_runs_source_id'), 'ingestion_runs', ['source_id'], unique=False)
+    # op.add_column does NOT auto-create Postgres enum types — do it explicitly.
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        sa.Enum('active', 'failed', 'expired', name='coupon_status').create(bind, checkfirst=True)
     op.add_column(
         'coupons',
         sa.Column(

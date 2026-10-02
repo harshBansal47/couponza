@@ -17,7 +17,9 @@ from app.models import coupon as _coupon  # noqa: F401
 from app.models import coupon_verification as _coupon_verification  # noqa: F401
 from app.models import ingestion_run as _ingestion_run  # noqa: F401
 from app.models import page as _page  # noqa: F401
+from app.models import product as _product  # noqa: F401
 from app.models import source as _source  # noqa: F401
+from app.models import tracking as _tracking  # noqa: F401
 from app.models import store as _store  # noqa: F401
 from app.models import user as _user  # noqa: F401
 
@@ -28,7 +30,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# ConfigParser would try to interpolate "%" in e.g. URL-encoded passwords.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

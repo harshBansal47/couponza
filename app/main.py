@@ -9,11 +9,13 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal, engine
 from app.core.limiter import limiter
 from app.core.security_headers import SecurityHeadersMiddleware
+from app.routers.api.v1.account import router as account_router
 from app.routers.api.v1.ads import router as ads_router
 from app.routers.api.v1.auth import router as auth_router
 from app.routers.api.v1.categories import router as categories_router
 from app.routers.api.v1.coupons import router as coupons_router
 from app.routers.api.v1.pages import router as pages_router
+from app.routers.api.v1.products import router as products_router
 from app.routers.api.v1.stores import router as stores_router
 
 settings = get_settings()
@@ -49,6 +51,8 @@ for _router in (
     coupons_router,
     ads_router,
     pages_router,
+    products_router,
+    account_router,
 ):
     app.include_router(_router, prefix="/api/v1")
 

@@ -101,7 +101,9 @@ def normalize_offer(raw: RawOffer) -> NormalizedOffer:
     store_slug = raw.store_slug or (slugify(raw.store_name) if raw.store_name else "")
     if not store_slug:
         raise NormalizeError("offer has no store_slug/store_name")
-    store_name = raw.store_name or (raw.store_slug.replace("-", " ").title() if raw.store_slug else "")
+    store_name = raw.store_name or (
+        raw.store_slug.replace("-", " ").title() if raw.store_slug else ""
+    )
 
     category_slug = raw.category_slug or (slugify(raw.category_name) if raw.category_name else None)
 

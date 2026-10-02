@@ -11,6 +11,7 @@ from typing import Any, ClassVar, cast
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqladmin import ModelView
+from sqladmin.filters import BooleanFilter, StaticValuesFilter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 from wtforms import PasswordField
@@ -22,6 +23,7 @@ from app.models.category import Category
 from app.models.coupon import Coupon
 from app.models.ingestion_run import IngestionRun
 from app.models.page import Page
+from app.models.product import PricePoint, Product
 from app.models.source import Source
 from app.models.store import Store
 from app.models.user import Role, User
@@ -161,6 +163,15 @@ class CouponAdmin(StaffModelView, model=Coupon):
         Coupon.updated_at,
     ]
     column_searchable_list = [Coupon.title, Coupon.code, Coupon.slug]
+    # The "admin queue" for suspicious offers: filter by status in one click.
+    column_filters = [
+        StaticValuesFilter(
+            Coupon.status,
+            values=[("active", "active"), ("failed", "failed"), ("expired", "expired")],
+            title="Status",
+        ),
+        BooleanFilter(Coupon.is_active, title="Active"),
+    ]
     column_sortable_list = [
         Coupon.title,
         Coupon.discount_type,
@@ -331,6 +342,55 @@ class SourceAdmin(StaffModelView, model=Source):
     slug_source = "name"
 
 
+class ProductAdmin(StaffModelView, model=Product):
+    name = "Product"
+    name_plural = "Products"
+    icon = "fa-solid fa-box-open"
+
+    column_list = [
+        Product.name,
+        "store",
+        Product.current_price,
+        Product.lowest_price_90d,
+        Product.last_price_drop_pct,
+        Product.in_stock,
+        Product.last_captured_at,
+    ]
+    column_searchable_list = [Product.name, Product.slug]
+    column_sortable_list = [Product.name, Product.current_price, Product.created_at]
+    column_default_sort = [(Product.created_at, True)]
+    column_filters = [BooleanFilter(Product.in_stock, title="In stock")]
+    form_columns = [
+        Product.name,
+        "store",
+        "category",
+        Product.url,
+        Product.image_url,
+        Product.currency,
+    ]
+    slug_source = "name"
+
+
+class PricePointAdmin(StaffModelView, model=PricePoint):
+    name = "Price Point"
+    name_plural = "Price Points"
+    icon = "fa-solid fa-chart-line"
+
+    column_list = [
+        PricePoint.product_id,
+        PricePoint.price,
+        PricePoint.original_price,
+        PricePoint.shipping,
+        PricePoint.in_stock,
+        PricePoint.captured_at,
+    ]
+    column_sortable_list = [PricePoint.captured_at, PricePoint.price]
+    column_default_sort = [(PricePoint.captured_at, True)]
+    # History is recorded data, not hand-maintained state.
+    can_edit = False
+    can_create = False
+
+
 class IngestionRunAdmin(StaffModelView, model=IngestionRun):
     name = "Ingestion Run"
     name_plural = "Ingestion Runs"
@@ -362,4 +422,6 @@ ALL_VIEWS = (
     UserAdmin,
     SourceAdmin,
     IngestionRunAdmin,
+    ProductAdmin,
+    PricePointAdmin,
 )

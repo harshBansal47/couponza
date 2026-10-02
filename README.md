@@ -328,10 +328,57 @@ docker compose exec app python scripts/refresh_coupons.py --skip-sources  # expi
 real source = one `Source` row + (if it isn't CSV) one new adapter in
 `app/ingestion/sources/` + one line in `app/ingestion/registry.py`.
 
+## Price/Deal intelligence layer (`app/services/price_service.py`)
+
+Phase 1 of the shift from coupon directory to commerce-intelligence platform:
+
+- **`Product`** (new model, FK to `Store` + `Category`) — a merchant's sellable
+  unit. Carries the denormalized stats: `current_price`, `list_price`,
+  `in_stock`, `last_captured_at`, `lowest_price_7d/30d/90d`, and
+  `last_price_drop_at/pct`.
+- **`PricePoint`** (new model) — one observed price at a moment: `price`,
+  `original_price`, `shipping`, `in_stock`, optional `coupon_id`, `captured_at`.
+  This is the `price_history[]`; the product's rolling lows are recomputed from
+  it on every insert.
+- **Effective price** — `GET /api/v1/products/{id}` returns `effective_price`
+  computed from the latest point's linked coupon (percentage/fixed discounts
+  applied, shipping added, floored at 0). This is the "\u20b9Coupon: \u20b91,000 OFF → Effective: \u20b97,499"
+  number the frontend can show without duplicating the math.
+- **Price-drop detection** — when a new point comes in below the previous
+  price, `last_price_drop_pct` + `last_price_drop_at` are stored (used later
+  for alerts / deal-quality).
+- Public read endpoints: `GET /products`, `/products/{id}`, `/products/by-slug/{slug}`,
+  `/products/{id}/price-history`. Writing points requires admin/editor.
+
+Frontend pages/charts for products are the next step (no product UI exists yet).
+
+## User retention + distribution (Phase 1)
+
+The retention loop: `User ├── saved stores / saved coupons / tracked products
+(target price) / notification preferences` → `AlertEvent` history → channels
+(email / telegram / push).
+
+- **Endpoints** (all under `/api/v1/me`, bearer token required):
+  - `GET|POST|DELETE /me/saved-stores[/{id}]`, same for `/me/saved-coupons`
+  - `GET|POST /me/tracked-products`, `PATCH|DELETE /me/tracked-products/{id}`
+  - `GET|PATCH /me/notification-preferences` (email on/off, telegram chat id, push subscription)
+  - `GET /me/alerts` — what was sent and when
+- **Alert engine** (`app/services/alert_service.py`, run via
+  `scripts/run_alerts.py` on cron): per tracked product, on new observation:
+  `target_met` (effective price incl. coupon ≤ target) beats `price_drop`
+  beats `coupon_appeared`. One alert per (tracked product, price point) —
+  `TrackAlertState` prevents re-alerting about the same data.
+- **Channels** (`app/services/notifications.py`): Telegram is real when
+  `TELEGRAM_BOT_TOKEN` + chat id are set; email logs/queues until an SMTP
+  client is wired; browser push queues until the extension + VAPID land.
+  WhatsApp deliberately not built.
+- Idempotent by design: duplicate saves/tracking upsert instead of erroring.
+
+Not built yet (by design, in order): frontend account UI using these endpoints,
+web-push delivery, the browser extension itself.
+
 ## Next step
 
-- Frontend account/login UI (backend auth exists, no UI calls it yet).
-- A real affiliate/API source adapter (the `csv`/`static` kinds are the
-  template; a JSON-feed adapter is ~20 lines).
-- CI (GitHub Actions) running the 90 backend + 39 frontend tests.
-- Type-codegen from the backend's OpenAPI schema into `couponza-web/lib/types.ts`.
+- Frontend product page: price-history chart, effective-price block, "90-day low" badge.
+- A price-source adapter feeding `record_price` automatically (same `Source`/feed
+  machinery as ingestion) — this is also what starts real alert traffic.

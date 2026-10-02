@@ -13,6 +13,7 @@ class SourceKind(str, enum.Enum):
 
     csv = "csv"
     static = "static"  # inline offer list in config — used for tests and seed data
+    feed = "feed"  # JSON over HTTP — the path to real automated sources
 
 
 class Source(Base, UUIDPKMixin, TimestampMixin):
@@ -20,6 +21,7 @@ class Source(Base, UUIDPKMixin, TimestampMixin):
 
     csv:    {"path": "/data/offers.csv", "default_category_slug": "general"}
     static: {"offers": [{...RawOffer fields...}]}
+    feed:   {"url": "https://example.com/offers.json"}  # a JSON list, or {"offers": [...]}
     """
 
     __tablename__ = "sources"
