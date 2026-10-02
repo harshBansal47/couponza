@@ -27,6 +27,11 @@ def _use_test_database(monkeypatch, async_session_maker):
     assert against an empty in-memory database.
     """
     monkeypatch.setattr(scheduler, "AsyncSessionLocal", async_session_maker)
+    # Backoff state is module-level on purpose (see the scheduler docstring), so
+    # without this a test that fails a job leaves the next test's job paused and
+    # the failure surfaces as an unrelated assertion about a missing row.
+    scheduler._failure_streak.clear()
+    scheduler._backoff_until.clear()
 
 
 async def _rows(async_session_maker, job: str | None = None) -> list[JobRun]:
@@ -304,3 +309,191 @@ async def test_expire_job_expires_stale_coupons(async_session_maker) -> None:
     async with async_session_maker() as db:
         row = await db.get(Coupon, coupon_id)
         assert row.status is CouponStatus.expired
+
+
+# ---- Failure backoff ----
+#
+# The property being protected is that a job which cannot succeed stops being
+# retried on a schedule, and that a human can still override that. Without the
+# first, one unreachable SMTP host becomes 48 identical Sentry events a day; with
+# neither, fixing the config does nothing until someone restarts the process.
+
+
+def _failing(monkeypatch, name: str, error: Exception | None = None):
+    """Replace a job's body with one that always raises."""
+    calls = {"n": 0}
+
+    async def _boom(_db):
+        calls["n"] += 1
+        raise error or RuntimeError("upstream is down")
+
+    _, lock_id = scheduler.JOBS[name]
+    monkeypatch.setitem(scheduler.JOBS, name, (_boom, lock_id))
+    return calls
+
+
+async def test_a_job_pauses_after_one_failure(async_session_maker, monkeypatch) -> None:
+    calls = _failing(monkeypatch, "expire_coupons")
+
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job("expire_coupons")
+    assert await scheduler.run_job("expire_coupons") == "skipped"
+
+    # The body ran once. The second call was a skip, not a retry.
+    assert calls["n"] == 1
+    assert scheduler._failure_streak["expire_coupons"] == 1
+    assert scheduler._backoff_remaining("expire_coupons") > 0
+
+
+async def test_the_pause_doubles_per_consecutive_failure(async_session_maker, monkeypatch) -> None:
+    import time
+
+    _failing(monkeypatch, "expire_coupons")
+    intervals = []
+    for _ in range(4):
+        with pytest.raises(RuntimeError):
+            await scheduler.run_job("expire_coupons", ignore_backoff=True)
+        intervals.append(scheduler._backoff_remaining("expire_coupons"))
+        # Rewind the deadline so the next forced attempt is genuinely consecutive.
+        scheduler._backoff_until["expire_coupons"] = time.monotonic()
+
+    interval = scheduler.job_interval_seconds("expire_coupons")
+    assert intervals == pytest.approx([interval, 2 * interval, 4 * interval, 8 * interval])
+
+
+async def test_the_pause_is_capped_as_a_multiple_of_the_interval(monkeypatch) -> None:
+    # A 30-minute alert scan backed off 64x is 32 hours. Without a cap, the
+    # doubling reaches a point where a job has effectively stopped forever.
+    interval = scheduler.job_interval_seconds("send_alerts")
+    assert scheduler._backoff_seconds("send_alerts", 50) == interval * 64
+
+
+async def test_a_success_clears_the_streak_and_the_pause(async_session_maker, monkeypatch) -> None:
+    _failing(monkeypatch, "expire_coupons")
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job("expire_coupons")
+    assert scheduler._backoff_remaining("expire_coupons") > 0
+
+    async def _works(db):
+        return "expired 0"
+
+    monkeypatch.setitem(
+        scheduler.JOBS, "expire_coupons", (_works, scheduler.JOBS["expire_coupons"][1])
+    )
+    await scheduler.run_job("expire_coupons", ignore_backoff=True)
+
+    assert "expire_coupons" not in scheduler._failure_streak
+    assert scheduler._backoff_remaining("expire_coupons") == 0
+    # And the job runs normally again without any manual intervention.
+    assert await scheduler.run_job("expire_coupons") == "expired 0"
+
+
+async def test_a_skipped_run_is_recorded_with_the_reason(async_session_maker, monkeypatch) -> None:
+    # A pause with no row is indistinguishable from a scheduler that stopped.
+    _failing(monkeypatch, "expire_coupons")
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job("expire_coupons")
+    await scheduler.run_job("expire_coupons")
+
+    rows = await _rows(async_session_maker, "expire_coupons")
+    assert [r.status for r in rows] == [JobStatus.failed, JobStatus.skipped]
+    assert "backoff after 1 consecutive failure" in rows[1].detail
+
+
+async def test_the_manual_run_path_ignores_the_backoff(async_session_maker, monkeypatch) -> None:
+    calls = _failing(monkeypatch, "expire_coupons")
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job_now("expire_coupons")
+
+    # Someone clicked "run it again" after reading the error. The second click
+    # must actually attempt the job.
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job_now("expire_coupons")
+    assert calls["n"] == 2
+
+
+async def test_only_the_first_failure_of_a_streak_is_reported_to_sentry(
+    async_session_maker, monkeypatch
+) -> None:
+    # The escalation message covers the pattern; 48 copies of the same
+    # exception would bury every other alert in the project.
+    reported: list[str] = []
+    monkeypatch.setattr(
+        scheduler.sentry, "capture_exception", lambda exc, **kw: reported.append(kw["job"])
+    )
+    monkeypatch.setattr(
+        scheduler.sentry, "capture_message", lambda msg, **kw: reported.append(f"msg:{msg}")
+    )
+
+    _failing(monkeypatch, "expire_coupons")
+    for _ in range(7):
+        with pytest.raises(RuntimeError):
+            await scheduler.run_job_now("expire_coupons")
+
+    exceptions = [r for r in reported if not r.startswith("msg:")]
+    messages = [r for r in reported if r.startswith("msg:")]
+    assert len(exceptions) == 1
+    # One escalation, at the dead-letter threshold — not on every retry.
+    assert len(messages) == 1
+    assert f"after {scheduler.DEAD_LETTER_AFTER} consecutive" in messages[0]
+
+
+async def test_a_pause_is_not_reported_to_sentry_at_all(async_session_maker, monkeypatch) -> None:
+    reported: list[str] = []
+    monkeypatch.setattr(
+        scheduler.sentry, "capture_exception", lambda exc, **kw: reported.append("exc")
+    )
+    monkeypatch.setattr(scheduler.sentry, "capture_message", lambda msg, **kw: reported.append(msg))
+
+    _failing(monkeypatch, "expire_coupons")
+    with pytest.raises(RuntimeError):
+        await scheduler.run_job("expire_coupons")
+    reported.clear()
+
+    for _ in range(5):
+        await scheduler.run_job("expire_coupons")
+    # Five ticks passed with no work and no alert: that is the entire point.
+    assert reported == []
+
+
+def test_backoff_state_reports_every_job() -> None:
+    # A job absent from the snapshot reads as healthy in an admin panel, which
+    # is the exact failure this whole mechanism was added to prevent.
+    state = scheduler.backoff_state()
+    assert set(state) == set(scheduler.JOBS)
+    for entry in state.values():
+        assert entry["consecutive_failures"] == 0
+        assert entry["backing_off"] is False
+        assert entry["dead_lettered"] is False
+
+
+def test_backoff_state_marks_a_dead_lettered_job(monkeypatch) -> None:
+    # Dead-lettering is a diagnosis a human has to act on, so it has to be
+    # visible without reading logs.
+    monkeypatch.setitem(scheduler._failure_streak, "send_alerts", scheduler.DEAD_LETTER_AFTER)
+    monkeypatch.setitem(scheduler._backoff_until, "send_alerts", float("inf"))
+
+    entry = scheduler.backoff_state()["send_alerts"]
+    assert entry["dead_lettered"] is True
+    assert entry["backing_off"] is True
+
+
+def test_a_job_that_never_failed_is_not_dead_lettered() -> None:
+    assert scheduler.backoff_state()["send_alerts"]["dead_lettered"] is False
+
+
+def test_job_intervals_are_read_from_settings() -> None:
+    # The backoff unit is the job's own interval, so a reconfigured schedule
+    # must move the ceiling with it rather than leaving a stale constant.
+    settings = scheduler.get_settings()
+    assert scheduler.job_interval_seconds("expire_coupons") == settings.expire_interval_hours * 3600
+    assert (
+        scheduler.job_interval_seconds("refresh_prices") == settings.ingestion_interval_hours * 3600
+    )
+    assert (
+        scheduler.job_interval_seconds("verify_coupons")
+        == settings.verification_interval_hours * 3600
+    )
+    assert (
+        scheduler.job_interval_seconds("send_alerts") == settings.alert_scan_interval_minutes * 60
+    )

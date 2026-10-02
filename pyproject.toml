@@ -38,10 +38,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    # CI reports coverage. Without this the flag is silently rejected and the
+    # suite still passes, which is the worst possible failure for a reporting
+    # step: it looks like coverage ran.
+    "pytest-cov>=5.0",
     "httpx>=0.27",
     "aiosqlite>=0.20",
     "ruff>=0.6",
-    "black>=24.0",
     "mypy>=1.11",
 ]
 mcp = [
@@ -69,8 +72,30 @@ ignore = ["B008", "RUF012"]
 # DTZ001: this test's whole point is exercising the naive-datetime code path.
 "tests/test_admin.py" = ["DTZ001"]
 
-[tool.black]
-line-length = 100
+[tool.coverage.run]
+# Branch coverage, not line coverage. Line coverage is fully satisfied by an `if`
+# with no `else`, which is exactly where a missing error path hides — and a
+# missing error path in a price-alert or delivery code is not a style nit.
+branch = true
+# Only the app. `alembic/` is excluded because a migration is exercised by
+# running it, not by importing it, so counting it as uncovered would push the
+# number down for a directory nothing measures.
+source = ["app"]
+omit = ["alembic/*", "mcp_server/*"]
+
+[tool.coverage.report]
+# A floor, not a target. It exists so a change that deletes a test and the
+# coverage together is caught in CI rather than noticed in a quarter. Raising it
+# is a deliberate act — a floor that drifts upward on its own trains everyone to
+# ignore it, and a floor set above today's number turns every PR red.
+fail_under = 80
+show_missing = true
+exclude_also = [
+    '\.venv/',
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

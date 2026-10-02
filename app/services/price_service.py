@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import metrics
 from app.core.exceptions import EntityNotFoundError
 from app.core.pagination import paginate
 from app.core.slugs import generate_unique_slug
@@ -162,6 +163,10 @@ async def record_price(db: AsyncSession, product: Product, payload: PricePointCr
     await db.commit()
     await db.refresh(product)
     await db.refresh(point)
+    # After the commit, so a rolled-back price does not update the freshness
+    # gauge. "When did we last see a price" is a question about stored data, and
+    # a point that never landed is not one.
+    metrics.mark_price_captured()
     return point
 
 
@@ -172,4 +177,6 @@ async def autocomplete_products(db: AsyncSession, query: str, limit: int = 10) -
         .order_by(Product.name)
         .limit(limit)
     )
-    return result.scalars().all()
+    # `.all()` is typed Sequence[str]; the routers serialise this straight to
+    # JSON, so the narrower concrete type is what the contract actually promises.
+    return list(result.scalars().all())

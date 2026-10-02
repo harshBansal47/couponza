@@ -1,9 +1,10 @@
+import os
 import uuid
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -29,7 +30,29 @@ from app.models.user import Role
 from app.schemas.user import UserCreate
 from app.services import user_service
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+# SQLite in memory by default, because it needs no server and a developer should
+# be able to run the suite with one command and no setup.
+#
+# `TEST_DATABASE_URL` overrides it, and CI sets it to Postgres. That is not
+# belt-and-braces: SQLite and Postgres disagree on the things this codebase most
+# needs tested. Advisory locks do not exist on SQLite at all (so the scheduler
+# silently takes the non-Postgres branch and the lock is never exercised), and
+# SQLite hands back naive datetimes from `timestamptz` columns and ignores
+# `Numeric` precision. A suite that only ever sees SQLite cannot catch a
+# production-only failure in either.
+#
+# `DATABASE_URL` is deliberately *not* read here. This is a throwaway test
+# database that gets dropped and recreated; pointing it at a developer's working
+# `DATABASE_URL` would truncate their actual data.
+#
+# `TEST_DATABASE_SCHEMA` exists because a Postgres instance is often shared — a
+# CI service container, or a laptop that also has a development database. Creating
+# a schema is permitted far more often than creating a database, and a schema is
+# isolated the same way for these purposes: `create_all` builds into it and
+# `drop_all` removes only what it created.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+TEST_DATABASE_SCHEMA = os.environ.get("TEST_DATABASE_SCHEMA")
+USING_POSTGRES = TEST_DATABASE_URL.startswith("postgresql")
 
 
 @pytest.fixture(autouse=True)
@@ -45,24 +68,51 @@ def _reset_rate_limiter():
 
 @pytest_asyncio.fixture
 async def engine():
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    if USING_POSTGRES:
+        # No StaticPool: a single connection would serialise every test and, more
+        # importantly, a shared connection cannot hold two sessions at once, which
+        # is exactly the situation the advisory-lock tests need.
+        connect_args: dict = {}
+        if TEST_DATABASE_SCHEMA:
+            connect_args["server_settings"] = {"search_path": TEST_DATABASE_SCHEMA}
+        engine = create_async_engine(TEST_DATABASE_URL, connect_args=connect_args)
+    else:
+        engine = create_async_engine(
+            TEST_DATABASE_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
 
-    # SQLite ignores foreign keys unless told otherwise; Postgres always enforces them.
-    @event.listens_for(engine.sync_engine, "connect")
-    def _enable_fk(dbapi_connection, _record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+        # SQLite ignores foreign keys unless told otherwise; Postgres always
+        # enforces them. Registered on the sync engine so it applies to every
+        # pooled connection rather than just the first.
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_fk(dbapi_connection, _record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    if USING_POSTGRES and TEST_DATABASE_SCHEMA:
+        # The schema has to exist before `search_path` points at it, and it is
+        # created outside the metadata so `drop_all` below does not try to drop a
+        # schema it never created.
+        async with engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_DATABASE_SCHEMA}"'))
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
 
+    if USING_POSTGRES and TEST_DATABASE_SCHEMA:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_DATABASE_SCHEMA}" CASCADE'))
+    elif USING_POSTGRES:
+        # Drop rather than truncate: enum types created by `create_all` are not
+        # removed by `DROP TABLE`, and leaving them behind makes the next run fail
+        # with "type already exists".
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 

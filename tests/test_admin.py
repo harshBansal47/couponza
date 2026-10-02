@@ -370,3 +370,121 @@ async def test_main_app_mounts_admin(client):
     resp = await client.get("/admin/")
     assert resp.status_code == 302
     assert resp.headers["location"].endswith("/admin/login")
+
+
+# ------------------------------------------------- job runs and verification attempts
+
+
+async def test_job_runs_and_verification_attempts_are_listed_in_the_admin(
+    admin_client, make_user, async_session_maker
+):
+    # These two tables are the whole answer to "why is this coupon stale?" and
+    # "why did that code disappear?". If they are not reachable from the panel,
+    # the only way to read them is psql.
+    await staff_login(admin_client, make_user, Role.admin)
+    for path in ("/admin/job-run/list", "/admin/verification-attempt/list"):
+        resp = await admin_client.get(path)
+        assert resp.status_code == 200, f"{path}: {resp.text[:400]}"
+        assert "Job Runs" in resp.text or "Verification Attempts" in resp.text
+
+
+async def test_job_run_detail_page_renders(admin_client, make_user, async_session_maker):
+    from app.models.job import JobRun, JobStatus
+
+    async with async_session_maker() as session:
+        session.add(
+            JobRun(
+                job="send_alerts",
+                status=JobStatus.failed,
+                detail="ConnectionError: SMTP unreachable",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    await staff_login(admin_client, make_user, Role.admin)
+    resp = await admin_client.get("/admin/job-run/list")
+    assert resp.status_code == 200
+    assert "send_alerts" in resp.text
+    assert "SMTP unreachable" in resp.text
+
+
+async def test_job_runs_cannot_be_edited_by_hand(admin_client, make_user, async_session_maker):
+    # Every column here is a fact about a run. An admin form that could rewrite
+    # one would let a repaired job history be manufactured, which is the only
+    # thing this table must never be.
+    from app.models.job import JobRun, JobStatus
+
+    async with async_session_maker() as session:
+        run = JobRun(
+            job="send_alerts",
+            status=JobStatus.failed,
+            detail="original",
+            started_at=datetime.now(UTC),
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await staff_login(admin_client, make_user, Role.admin)
+    resp = await admin_client.post(
+        f"/admin/job-run/edit/{run_id}",
+        data={"job": "send_alerts", "status": "success", "started_at": "2030-01-01 00:00:00"},
+        follow_redirects=False,
+    )
+    # 403 is what SQLAdmin's authorization backend returns for a denied action,
+    # which is the strongest of these answers: the form is not merely hidden, the
+    # endpoint refuses.
+    assert resp.status_code in (302, 303, 405, 403), resp.status_code
+
+    async with async_session_maker() as session:
+        row = await session.get(JobRun, run_id)
+        assert row.status is JobStatus.failed
+        assert row.detail == "original"
+
+
+async def test_verification_attempt_keeps_inconclusive_separate_from_failed(
+    admin_client, make_user, async_session_maker
+):
+    # "We could not check" and "we checked and it did not work" must not look the
+    # same in the admin list, or a broken checker reads as a pile of dead coupons.
+    from app.models.coupon import DiscountType
+    from app.models.verification_attempt import AttemptOutcome, VerificationAttempt
+
+    async with async_session_maker() as session:
+        store = Store(name="Verity Store", slug=f"verity-{uuid.uuid4().hex[:8]}")
+        session.add(store)
+        await session.flush()
+        category = Category(name="Verity Category", slug=f"vc-{uuid.uuid4().hex[:8]}")
+        session.add(category)
+        await session.flush()
+        coupon = Coupon(
+            title="Verity deal",
+            slug=f"verity-deal-{uuid.uuid4().hex[:8]}",
+            discount_type=DiscountType.percentage,
+            discount_value=10.0,
+            store_id=store.id,
+            category_id=category.id,
+            destination_url="https://example.com/deal",
+        )
+        session.add(coupon)
+        await session.flush()
+        for outcome in (AttemptOutcome.inconclusive, AttemptOutcome.failed):
+            session.add(
+                VerificationAttempt(
+                    coupon_id=coupon.id,
+                    checker="headless_fetch",
+                    outcome=outcome,
+                    # `valid` is null for inconclusive and false for failed: the
+                    # tri-state is the whole point of the nullable column.
+                    valid=None if outcome is AttemptOutcome.inconclusive else False,
+                    checked_at=datetime.now(UTC),
+                )
+            )
+        await session.commit()
+
+    await staff_login(admin_client, make_user, Role.admin)
+    resp = await admin_client.get("/admin/verification-attempt/list")
+    assert resp.status_code == 200
+    assert "inconclusive" in resp.text
+    assert "failed" in resp.text

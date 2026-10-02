@@ -23,7 +23,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.observability import get_logger
 from app.models.job import JobStatus
-from app.services.scheduler import last_run
+from app.services.scheduler import backoff_state, last_run
 
 router = APIRouter(tags=["system"])
 logger = get_logger("couponza.health")
@@ -81,9 +81,24 @@ async def health_deep(response: Response, db: AsyncSession = Depends(get_db)) ->
         # instead of raising is the entire point of a check endpoint: it has to
         # stay answerable precisely when things are broken.
         try:
-            checks[job] = await _job_health(db, job, limit)
+            report = await _job_health(db, job, limit)
         except Exception:  # noqa: BLE001
-            checks[job] = {"status": "unknown"}
+            report = {"status": "unknown"}
+
+        # The in-process backoff is reported alongside the durable history, and
+        # not merged into it. The history says the last attempt failed; only this
+        # says the job is currently *paused*, which is the difference between a
+        # bug being retried and a bug being handled. Neither alone is enough:
+        # without the history a live backoff looks fine, and without the
+        # backoff a failed row looks like the job is still hammering away.
+        entry = backoff_state().get(job, {})
+        if entry.get("dead_lettered"):
+            report["dead_lettered"] = True
+            report["consecutive_failures"] = entry["consecutive_failures"]
+        elif entry.get("backing_off"):
+            report["backing_off"] = True
+            report["backoff_seconds_remaining"] = entry["backoff_seconds_remaining"]
+        checks[job] = report
 
     checks["email"] = {
         "status": "configured" if get_settings().email_configured else "not configured"

@@ -22,11 +22,13 @@ from app.models.ad import Ad
 from app.models.category import Category
 from app.models.coupon import Coupon
 from app.models.ingestion_run import IngestionRun
+from app.models.job import JobRun, JobStatus
 from app.models.page import Page
 from app.models.product import PricePoint, Product
 from app.models.source import Source
 from app.models.store import Store
 from app.models.user import Role, User
+from app.models.verification_attempt import AttemptOutcome, VerificationAttempt
 
 _email_adapter: TypeAdapter[str] = TypeAdapter(EmailStr)
 
@@ -413,6 +415,111 @@ class IngestionRunAdmin(StaffModelView, model=IngestionRun):
     can_edit = False
 
 
+class JobRunAdmin(StaffModelView, model=JobRun):
+    """The job ledger, and the page to read first when a coupon looks stale.
+
+    Nothing here is editable. Every column is either a fact about the world or a
+    fact about the run, and letting an admin form rewrite either would let a
+    "fixed" job history be manufactured — which is the one thing this table has
+    to be trusted for.
+    """
+
+    name = "Job Run"
+    name_plural = "Job Runs"
+    icon = "fa-solid fa-list-check"
+
+    column_list = [
+        JobRun.job,
+        JobRun.status,
+        JobRun.started_at,
+        JobRun.duration_ms,
+        JobRun.detail,
+    ]
+    column_details_list = column_list + [JobRun.finished_at]
+    column_searchable_list = [JobRun.job, JobRun.detail]
+    column_filters = [
+        # The two questions this table is opened for: "which job is broken?" and
+        # "what did it say when it broke?"
+        StaticValuesFilter(
+            JobRun.job,
+            values=[
+                ("expire_coupons", "expire_coupons"),
+                ("refresh_prices", "refresh_prices"),
+                ("send_alerts", "send_alerts"),
+                ("verify_coupons", "verify_coupons"),
+            ],
+            title="Job",
+        ),
+        StaticValuesFilter(
+            JobRun.status,
+            values=[
+                (JobStatus.success.value, "success"),
+                (JobStatus.failed.value, "failed"),
+                (JobStatus.skipped.value, "skipped"),
+                (JobStatus.running.value, "running"),
+            ],
+            title="Status",
+        ),
+    ]
+    column_sortable_list = [JobRun.job, JobRun.status, JobRun.started_at, JobRun.duration_ms]
+    # Newest first, always: nobody opens a history table to read the oldest row.
+    column_default_sort = [(JobRun.started_at, True)]
+    can_create = False
+    can_edit = False
+    can_export = True
+    page_size = 50
+
+
+class VerificationAttemptAdmin(StaffModelView, model=VerificationAttempt):
+    """Automated checker results, kept apart from human reports.
+
+    The distinction is the reason this is a separate view from
+    `CouponVerification`: a store employee confirming a code by eye and a script
+    guessing from an HTTP status are different kinds of evidence, and averaging
+    them produces a success rate that means nothing.
+    """
+
+    name = "Verification Attempt"
+    name_plural = "Verification Attempts"
+    icon = "fa-solid fa-magnifying-glass-chart"
+
+    column_list = [
+        VerificationAttempt.checker,
+        VerificationAttempt.outcome,
+        "coupon",
+        VerificationAttempt.valid,
+        VerificationAttempt.checked_at,
+        VerificationAttempt.detail,
+    ]
+    column_details_list = column_list + [VerificationAttempt.created_at]
+    column_searchable_list = [VerificationAttempt.checker, VerificationAttempt.detail]
+    column_filters = [
+        StaticValuesFilter(
+            VerificationAttempt.outcome,
+            values=[
+                (AttemptOutcome.worked.value, "worked"),
+                (AttemptOutcome.failed.value, "failed"),
+                # Surfaced as its own filter because it is the one a checker
+                # author needs: too many of these means the checker is broken,
+                # not that the coupons are.
+                (AttemptOutcome.inconclusive.value, "inconclusive"),
+            ],
+            title="Outcome",
+        ),
+        BooleanFilter(VerificationAttempt.valid, title="Valid"),
+    ]
+    column_sortable_list = [
+        VerificationAttempt.checker,
+        VerificationAttempt.outcome,
+        VerificationAttempt.checked_at,
+    ]
+    column_default_sort = [(VerificationAttempt.checked_at, True)]
+    # Append-only evidence. Editing an attempt would be forging it.
+    can_create = False
+    can_edit = False
+    page_size = 50
+
+
 ALL_VIEWS = (
     CategoryAdmin,
     StoreAdmin,
@@ -424,4 +531,6 @@ ALL_VIEWS = (
     IngestionRunAdmin,
     ProductAdmin,
     PricePointAdmin,
+    JobRunAdmin,
+    VerificationAttemptAdmin,
 )

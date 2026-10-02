@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import metrics
 from app.core.slugs import generate_unique_slug
 from app.ingestion import dedupe, normalize, probe, validate
 from app.ingestion.normalize import NormalizedOffer, NormalizeError
@@ -157,6 +158,10 @@ async def run_ingestion(db: AsyncSession, source: Source) -> IngestionRun:
 
         run.status = RunStatus.success
         run.error = None
+        # Labelled by source slug, not name: the slug is the stable identifier,
+        # and a source renamed in the admin panel should not fork this series and
+        # orphan the history of every alert that fired on it.
+        metrics.ingestion_runs.labels(source.slug, RunStatus.success.value).inc()
     except Exception as exc:  # noqa: BLE001 - the run row must capture any failure
         await db.rollback()
         # Rollback also undid this run row's INSERT; record the failure in a fresh one.
@@ -171,6 +176,9 @@ async def run_ingestion(db: AsyncSession, source: Source) -> IngestionRun:
         db.add(failed_run)
         await db.commit()
         await db.refresh(failed_run)
+        # Same slug label as the success path, so a failure rate is a ratio over
+        # one label set rather than two unrelated series.
+        metrics.ingestion_runs.labels(source.slug, RunStatus.failed.value).inc()
         return failed_run
 
     run.finished_at = datetime.now(UTC)

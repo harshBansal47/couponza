@@ -14,6 +14,8 @@ of that is a dozen lines. The two things this module is careful about:
   error. Re-registering is a no-op instead.
 """
 
+import time
+
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST as OPENMETRICS_TYPE
 
@@ -67,6 +69,52 @@ stale_coupons = Gauge(
     "Coupons past their expiry date but still marked active.",
     registry=registry,
 )
+
+# A unix timestamp rather than a duration, because the alerting question is "how
+# long since the last success", which Prometheus expresses as
+# `time() - couponza_job_last_success_timestamp_seconds`. Computing the duration
+# in-process would need a "now" that Prometheus then has to take on trust, and
+# would go wrong the moment a scrape is delayed.
+#
+# Set only on success. A job that has never succeeded has no series at all, so
+# the alert that matters uses `absent()` — "never ran" and "stopped running" are
+# different problems, and `absent()` is the only way to tell them apart.
+job_last_success = Gauge(
+    "couponza_job_last_success_timestamp_seconds",
+    "Unix timestamp of the last successful run of each scheduled job.",
+    ["job"],
+    registry=registry,
+)
+
+coupons_expired = Counter(
+    "couponza_coupons_expired_total",
+    "Coupons retired by the expiry sweep, ever.",
+    registry=registry,
+)
+
+ingestion_runs = Counter(
+    "couponza_ingestion_runs_total",
+    "Ingestion pipeline executions, by source and outcome.",
+    ["source", "outcome"],
+    registry=registry,
+)
+
+price_last_captured = Gauge(
+    "couponza_price_last_captured_timestamp_seconds",
+    "Unix timestamp of the most recent price point capture, ever.",
+    registry=registry,
+)
+
+
+def mark_price_captured() -> None:
+    """Record that a price point was captured in this process.
+
+    A gauge rather than a timestamp column read at scrape time: the alternative
+    puts a query on the metrics path, which is how your own monitoring takes down
+    the database. A restarted process reports nothing until its next capture,
+    which is the honest answer rather than a stale high-water mark.
+    """
+    price_last_captured.set(time.time())
 
 
 def render() -> tuple[bytes, str]:

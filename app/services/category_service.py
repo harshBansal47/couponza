@@ -81,4 +81,6 @@ async def autocomplete_categories(db: AsyncSession, query: str, limit: int = 10)
         .order_by(Category.name)
         .limit(limit)
     )
-    return result.scalars().all()
+    # `.all()` is typed Sequence[str]; the routers serialise this straight to
+    # JSON, so the narrower concrete type is what the contract actually promises.
+    return list(result.scalars().all())

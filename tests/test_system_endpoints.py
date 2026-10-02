@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from app.core import metrics
 from app.core.config import get_settings
 from app.models.job import JobRun, JobStatus
+from app.services import scheduler
 
 # ---- Liveness ----
 
@@ -396,3 +397,101 @@ async def _sample_count(client: AsyncClient, route: str, status: str) -> float:
         await body_of(client),
     )
     return float(match.group(1)) if match else 0.0
+
+
+# ---- Backoff on the readiness check ----
+#
+# The durable history and the in-process backoff answer two different questions,
+# and a health endpoint that only shows the first one is misleading in the
+# direction that matters: "last run failed" reads like the job is still hammering
+# away at the broken thing, when it is in fact paused.
+
+
+@pytest.fixture(autouse=True)
+def _clear_backoff_state():
+    """Backoff state is module-level on the scheduler; reset it around each test.
+
+    Without this a job left failing by one test makes the next test's readiness
+    body report a pause that has nothing to do with what it seeded.
+    """
+    scheduler._failure_streak.clear()
+    scheduler._backoff_until.clear()
+    yield
+    scheduler._failure_streak.clear()
+    scheduler._backoff_until.clear()
+
+
+@pytest.mark.asyncio
+async def test_deep_health_reports_a_backing_off_job(
+    client: AsyncClient, monkeypatch, async_session_maker
+) -> None:
+    async with async_session_maker() as db:
+        db.add(
+            JobRun(
+                job="send_alerts",
+                status=JobStatus.failed,
+                started_at=datetime.now(UTC) - timedelta(minutes=5),
+                detail="ConnectionError: SMTP unreachable",
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setitem(scheduler._failure_streak, "send_alerts", 2)
+    monkeypatch.setitem(scheduler._backoff_until, "send_alerts", float("inf"))
+
+    body = (await client.get("/health/deep")).json()
+    check = body["checks"]["send_alerts"]
+    assert check["backing_off"] is True
+    # The original failure is still reported — a pause is an addition to the
+    # diagnosis, not a replacement for it.
+    assert check["detail"] == "ConnectionError: SMTP unreachable"
+    # And it is not "dead-lettered" at two failures.
+    assert "dead_lettered" not in check
+
+
+@pytest.mark.asyncio
+async def test_deep_health_reports_a_dead_lettered_job(
+    client: AsyncClient, monkeypatch, async_session_maker
+) -> None:
+    async with async_session_maker() as db:
+        db.add(
+            JobRun(
+                job="refresh_prices",
+                status=JobStatus.failed,
+                started_at=datetime.now(UTC) - timedelta(hours=1),
+                detail="OperationalError: could not connect",
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setitem(scheduler._failure_streak, "refresh_prices", scheduler.DEAD_LETTER_AFTER)
+    monkeypatch.setitem(scheduler._backoff_until, "refresh_prices", float("inf"))
+
+    check = (await client.get("/health/deep")).json()["checks"]["refresh_prices"]
+    assert check["dead_lettered"] is True
+    assert check["consecutive_failures"] == scheduler.DEAD_LETTER_AFTER
+
+
+@pytest.mark.asyncio
+async def test_a_paused_job_does_not_make_readiness_fail(client: AsyncClient, monkeypatch) -> None:
+    # A dead-lettered job is a real problem, but it is not a reason to stop
+    # routing traffic: the API serves coupons perfectly well while ingestion is
+    # broken, and a 503 here would take the whole site down over a background
+    # sweep. The problem is reported; the instance stays in rotation.
+    monkeypatch.setitem(
+        scheduler._failure_streak, "verify_coupons", scheduler.DEAD_LETTER_AFTER + 3
+    )
+    monkeypatch.setitem(scheduler._backoff_until, "verify_coupons", float("inf"))
+
+    resp = await client.get("/health/deep")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_job_reports_no_backoff_fields(client: AsyncClient) -> None:
+    # Absent rather than false/absent-noise: a permanently-present
+    # `"backing_off": false` is one more thing to scan past on every check.
+    check = (await client.get("/health/deep")).json()["checks"]["expire_coupons"]
+    assert "backing_off" not in check
+    assert "dead_lettered" not in check

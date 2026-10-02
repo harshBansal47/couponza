@@ -14,8 +14,16 @@ Two choices worth stating:
   noise. Errors are always reported; traces are sampled.
 """
 
+from typing import TYPE_CHECKING, Any, Literal
+
 from app.core.config import get_settings
 from app.core.observability import get_logger
+
+if TYPE_CHECKING:
+    # Sentry's own types, for checking only. Importing the SDK at runtime
+    # here would make `import app.core.sentry` require an optional dependency,
+    # which is exactly what this module exists to avoid.
+    from sentry_sdk.types import Event
 
 logger = get_logger("couponza.sentry")
 
@@ -80,12 +88,17 @@ def _release() -> str | None:
     return None
 
 
-def _strip_query_secrets(event: dict) -> dict | None:
+def _strip_query_secrets(event: "Event", hint: dict[str, Any]) -> "Event | None":
     """Drop query strings from request URLs before the event leaves.
 
     Deal URLs are the whole product, and some of them carry a subid or a token.
     Sentry's default keeps the full URL, which would mean shipping store
     tracking parameters to a third party.
+
+    `hint` is part of the signature and deliberately unused. Sentry calls
+    `before_send(event, hint)`; declaring one argument is not a shorthand, it is
+    a different callable, and the mismatch surfaces as a TypeError on the first
+    error in production rather than as a type error in the editor.
     """
     request = event.get("request")
     if not isinstance(request, dict):
@@ -110,3 +123,26 @@ def capture_exception(error: BaseException, **context: object) -> None:
         for key, value in context.items():
             scope.set_extra(str(key), value)
         sentry_sdk.capture_exception(error)
+
+
+def capture_message(
+    message: str,
+    *,
+    level: Literal["fatal", "critical", "error", "warning", "info", "debug"] = "error",
+    **context: object,
+) -> None:
+    """Report a condition with no exception attached.
+
+    Needed for the one class of problem an exception report cannot express: a job
+    that has failed repeatedly and is now being retried on a long backoff. The
+    final exception is not the interesting event — the *pattern* is, and a
+    pattern has no traceback.
+    """
+    if not _initialised:
+        return
+    import sentry_sdk
+
+    with sentry_sdk.push_scope() as scope:
+        for key, value in context.items():
+            scope.set_extra(str(key), value)
+        sentry_sdk.capture_message(message, level=level)

@@ -32,6 +32,10 @@ logger = logging.getLogger("couponza.lifecycle")
 async def expire_stale_coupons(db: AsyncSession) -> int:
     expired = await _expire_stale_coupons(db)
     await _publish_stale_gauge(db)
+    if expired:
+        # Adding zero to a counter is harmless but shows up in the series as a
+        # no-op event, and a sweep that retires nothing is not an event.
+        metrics.coupons_expired.inc(expired)
     return expired
 
 
