@@ -1,6 +1,8 @@
 import enum
+import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -26,3 +28,23 @@ class User(Base, UUIDPKMixin, TimestampMixin):
 
     def __str__(self) -> str:
         return self.email
+
+
+class PasswordResetToken(Base, UUIDPKMixin, TimestampMixin):
+    """Single-use, time-limited token for password recovery.
+
+    Created by `forgot_password`, consumed by `reset_password`. The expiry is
+    deliberately short — a leaked token in a sent-mail folder should not be
+    usable days later.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    def __str__(self) -> str:
+        return f"reset token for user {self.user_id}"

@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # Push payloads over ~4KB are rejected by browsers, so keep bodies small.
     push_ttl_seconds: int = 3600
 
+    # ---- Account security ----------------------------------------------
+    # How long a password reset token is valid. Short by default because a
+    # leaked token in a sent-mail folder should not be usable days later.
+    reset_token_ttl_hours: int = 2
+
     # ---- Telegram ------------------------------------------------------
     # Optional fourth channel. Off unless a bot token is supplied; the chat id
     # itself is stored per-user in notification_preferences.

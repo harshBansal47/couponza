@@ -35,3 +35,16 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
     current_password: str | None = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request a password reset email."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password using a token from the reset email."""
+
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)

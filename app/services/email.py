@@ -73,6 +73,112 @@ class AlertContent:
     code: str | None = None
 
 
+@dataclass(frozen=True)
+class ResetPasswordContent:
+    """Data needed for a password reset email."""
+
+    reset_url: str
+    expires_hours: int
+
+
+def render_reset_text(content: ResetPasswordContent, recipient: str) -> str:
+    lines = [
+        "Reset your Couponza password",
+        "",
+        f"Someone requested a password reset for {recipient}.",
+        f"This link expires in {content.expires_hours} hours:",
+        "",
+        content.reset_url,
+        "",
+        "If you did not request this, you can ignore this email.",
+        "",
+        "— Couponza",
+        "",
+    ]
+    return _wrap("\n".join(lines))
+
+
+
+def render_reset_html(content: ResetPasswordContent, recipient: str) -> str:
+    def esc(value: str) -> str:
+        return (
+            value.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+<body style="margin:0;padding:24px;background:#f6f5f2;font-family:Georgia,'Times New Roman',serif;color:#1c1b18">
+  <span style="display:none;max-height:0;overflow:hidden">Reset your Couponza password</span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border:1px solid #dcd8d0">
+        <tr><td style="padding:24px 28px 8px">
+          <p style="margin:0;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#6b675f">Couponza</p>
+        </td></tr>
+        <tr><td style="padding:8px 28px 24px">
+          <h1 style="margin:0 0 12px;font:26px/1.2 Georgia,serif">Reset your password</h1>
+          <p style="margin:0 0 12px;font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#3d3a34">Someone requested a password reset for {esc(recipient)}. This link expires in {content.expires_hours} hours.</p>
+          <p style="margin:0 0 24px">
+            <a href="{esc(content.reset_url)}" style="display:inline-block;padding:11px 18px;background:#1c1b18;color:#fff;text-decoration:none;font:600 14px ui-sans-serif,system-ui,sans-serif">Reset password</a>
+          </p>
+        </td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #e6e2da">
+          <p style="margin:0;font:12px/1.6 ui-sans-serif,system-ui,sans-serif;color:#6b675f">
+            If you did not request this, you can ignore this email.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+def build_reset_message(to: str, content: ResetPasswordContent) -> EmailMessage:
+    settings = get_settings()
+    message = EmailMessage()
+    message["Subject"] = "Reset your Couponza password"
+    message["From"] = formataddr((settings.email_from_name, settings.email_from))
+    message["To"] = to
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain=settings.email_from.rpartition("@")[2] or None)
+    message["List-Unsubscribe"] = f"<{unsubscribe_url(to)}>"
+    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    message["Auto-Submitted"] = "auto-generated"
+
+    message.set_content(render_reset_text(content, to))
+    message.add_alternative(render_reset_html(content, to), subtype="html")
+    return message
+
+
+async def send_reset_email(to: str, content: ResetPasswordContent) -> bool:
+    """Deliver a password reset email."""
+    settings = get_settings()
+    if not settings.email_configured:
+        logger.info(
+            "reset email queued (no SMTP_HOST configured)",
+            extra={"to": to},
+        )
+        return True
+
+    try:
+        import aiosmtplib
+
+        await aiosmtplib.send(build_reset_message(to, content), **_send_kwargs())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "reset email send failed",
+            extra={"to": to, "error": str(exc)},
+        )
+        return False
+
+    logger.info("reset email sent", extra={"to": to})
+    return True
+
+
 def unsubscribe_url(email: str) -> str:
     from urllib.parse import quote
 

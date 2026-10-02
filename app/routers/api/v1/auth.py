@@ -16,7 +16,13 @@ from app.core.security import (
 )
 from app.models.user import Role, User
 from app.schemas.auth import RefreshRequest, Token
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import (
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    UserCreate,
+    UserRead,
+    UserUpdate,
+)
 from app.services import user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -103,6 +109,55 @@ async def update_me(
         return await user_service.update_user(db, current_user, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("3/hour")
+async def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Request a password reset email.
+
+    Always returns 202 even if the email doesn't exist, to prevent user enumeration.
+    """
+    await user_service.send_password_reset_email(db, payload.email)
+    return {"message": "If an account exists, a reset email has been sent."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@limiter.limit("5/hour")
+async def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Reset the password using a valid token."""
+    if not await user_service.reset_password(db, payload.token, payload.new_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+    return {"message": "Password has been reset. You can now log in."}
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("1/hour")
+async def delete_account(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete the current user's account and all associated data.
+
+    This is a hard delete: the user, their saved items, tracked products,
+    alert history, and notification preferences are all removed.
+    Verification reports submitted by the user are preserved (without the
+    account attached) because they are public attestations.
+    """
+    await user_service.delete_user(db, current_user)
+    # The response is 204 with no content
 
 
 @router.get("/admin-ping")
