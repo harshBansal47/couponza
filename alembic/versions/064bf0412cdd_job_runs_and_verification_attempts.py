@@ -16,6 +16,7 @@ Create Date: 2026-10-02 23:18:46.601561
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "064bf0412cdd"
@@ -120,3 +121,17 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_job_runs_started_at"), table_name="job_runs")
     op.drop_index(op.f("ix_job_runs_job"), table_name="job_runs")
     op.drop_table("job_runs")
+    # Native enum types are not owned by the table the way an index or a
+    # constraint is: `op.drop_table` removes the column that used the type and
+    # leaves the type itself behind. Alembic does not track types created inline
+    # inside `op.create_table`, so nothing drops them automatically.
+    #
+    # The consequence of omitting these lines is not a cosmetic leftover. On the
+    # next `alembic upgrade head` the upgrade fails with
+    # `type "ad_position" already exists`, which means a deploy cannot be rolled
+    # back and then re-applied — the single most expensive thing a migration can
+    # fail to do. `IF EXISTS` keeps the downgrade safe against a database where
+    # the type was never created (SQLite, where these are plain VARCHARs).
+
+    op.execute("DROP TYPE IF EXISTS attempt_outcome")
+    op.execute("DROP TYPE IF EXISTS job_status")

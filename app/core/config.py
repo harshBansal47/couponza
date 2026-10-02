@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +10,12 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str = "change-me"
     database_url: str
-    redis_url: str = "redis://localhost:6379/0"
+    # None means "no Redis", which is not the same as "Redis at localhost".
+    # `redis://localhost:6379/0` as a default means a bare `uvicorn` on a machine
+    # without Redis fails at the first rate-limited request, so the default has
+    # to be the thing that works everywhere. Set it explicitly when running more
+    # than one replica — see `app/core/limiter.py`.
+    redis_url: str | None = None
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
     algorithm: str = "HS256"
@@ -97,6 +102,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def _blank_redis_url_is_disabled(cls, value: object) -> object:
+        """`REDIS_URL=` means off, not "connect to the empty host".
+
+        An empty string left as-is is a parse error inside the limits library
+        rather than a fallback to in-memory storage, which is the opposite of
+        what someone writing an empty value intends.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def _reject_placeholder_secret_in_production(self) -> "Settings":

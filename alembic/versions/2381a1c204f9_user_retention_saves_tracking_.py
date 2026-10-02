@@ -6,9 +6,9 @@ Create Date: 2026-10-02 14:46:35.728198
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "2381a1c204f9"
@@ -214,4 +214,19 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_saved_stores_store_id"), table_name="saved_stores")
     op.drop_table("saved_stores")
     op.drop_table("notification_preferences")
-    # ### end Alembic commands ###
+    # Native enum types are not owned by the table the way an index or a
+    # constraint is: `op.drop_table` removes the column that used the type and
+    # leaves the type itself behind. Alembic does not track types created inline
+    # inside `op.create_table`, so nothing drops them automatically.
+    #
+    # The consequence of omitting these lines is not a cosmetic leftover. On the
+    # next `alembic upgrade head` the upgrade fails with
+    # `type "ad_position" already exists`, which means a deploy cannot be rolled
+    # back and then re-applied — the single most expensive thing a migration can
+    # fail to do. `IF EXISTS` keeps the downgrade safe against a database where
+    # the type was never created (SQLite, where these are plain VARCHARs).
+
+    op.execute("DROP TYPE IF EXISTS alert_kind")
+
+
+# ### end Alembic commands ###

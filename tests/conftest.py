@@ -8,6 +8,42 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings
+
+# The suite must not read the developer's `.env`, and this has to happen before
+# any `get_settings()` call, which is why it sits above the app imports.
+#
+# Without it, `.env` decides how the tests behave: a developer's REDIS_URL sends
+# the rate limiter looking for a Redis that is not running, and a SENTRY_DSN or
+# SECRET_KEY in `.env` silently changes what is under test. A test that passes
+# on one machine and fails on another for that reason is the worst kind of flake,
+# because it looks like a real bug and is not.
+Settings.model_config["env_file"] = None
+os.environ["ENVIRONMENT"] = "test"
+os.environ.pop("REDIS_URL", None)
+os.environ.pop("SENTRY_DSN", None)
+
+# `database_url` is a required setting with no default, and until now it was
+# being satisfied by `.env` — which is to say the module-level engine in
+# `app.core.database` was pointed at the developer's real Postgres. API tests
+# never noticed, because `client` overrides `get_db`; anything that used the
+# module-level `AsyncSessionLocal` (the scheduler, the scripts) was writing to
+# the development database while the suite reported success.
+#
+# Pointing it at the same throwaway database the fixtures use closes that.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
+# The module-level engine in `app.core.database` is built from `DATABASE_URL` at
+# import time, which is now the throwaway test URL — but without the schema
+# `search_path` that `_build_engine` applies. Left alone, a developer running
+# the suite against a shared Postgres with `TEST_DATABASE_SCHEMA` set would have
+# the fixtures writing to an isolated schema while every code path that used the
+# module-level `AsyncSessionLocal` wrote to `public`, i.e. to their real data.
+#
+# Replacing both attributes is enough: `get_db` reads `AsyncSessionLocal` off the
+# module at call time, so the override takes effect without touching the
+# function.
+import app.core.database as _database
 from app.core.database import Base, get_db
 from app.core.limiter import limiter
 from app.core.security import create_access_token
@@ -66,8 +102,15 @@ def _reset_rate_limiter():
     limiter.reset()
 
 
-@pytest_asyncio.fixture
-async def engine():
+def _build_engine():
+    """The throwaway test database, built once and shared.
+
+    Shared between the `engine` fixture and the module-level engine in
+    `app.core.database`, so there is exactly one answer to "which database is
+    this test talking to". Two engines over one in-memory SQLite are two separate
+    databases, and a test that passed because of that would be passing for a
+    reason that has nothing to do with the code under test.
+    """
     if USING_POSTGRES:
         # No StaticPool: a single connection would serialise every test and, more
         # importantly, a shared connection cannot hold two sessions at once, which
@@ -75,22 +118,44 @@ async def engine():
         connect_args: dict = {}
         if TEST_DATABASE_SCHEMA:
             connect_args["server_settings"] = {"search_path": TEST_DATABASE_SCHEMA}
-        engine = create_async_engine(TEST_DATABASE_URL, connect_args=connect_args)
-    else:
-        engine = create_async_engine(
-            TEST_DATABASE_URL,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        return create_async_engine(TEST_DATABASE_URL, connect_args=connect_args)
 
-        # SQLite ignores foreign keys unless told otherwise; Postgres always
-        # enforces them. Registered on the sync engine so it applies to every
-        # pooled connection rather than just the first.
-        @event.listens_for(engine.sync_engine, "connect")
-        def _enable_fk(dbapi_connection, _record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    # SQLite ignores foreign keys unless told otherwise; Postgres always enforces
+    # them. Registered on the sync engine so it applies to every pooled
+    # connection rather than just the first.
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_fk(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    return engine
+
+
+# The module-level engine in `app.core.database` is built from `DATABASE_URL` at
+# import time, which is now the throwaway test URL — but without the schema
+# `search_path` that `_build_engine` applies. Left alone, a developer running
+# the suite against a shared Postgres with `TEST_DATABASE_SCHEMA` set would have
+# the fixtures writing to an isolated schema while every code path that used the
+# module-level `AsyncSessionLocal` wrote to `public`, i.e. to their real data.
+#
+# Replacing both attributes is enough: `get_db` reads `AsyncSessionLocal` off the
+# module at call time, so the override takes effect without touching the
+# function.
+
+_database.engine = _build_engine()
+_database.AsyncSessionLocal = async_sessionmaker(_database.engine, expire_on_commit=False)
+
+
+@pytest_asyncio.fixture
+async def engine():
+    engine = _build_engine()
 
     if USING_POSTGRES and TEST_DATABASE_SCHEMA:
         # The schema has to exist before `search_path` points at it, and it is

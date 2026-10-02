@@ -1,10 +1,10 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from alembic import context
 from app.core.config import get_settings
 from app.core.database import Base
 
@@ -19,8 +19,8 @@ from app.models import ingestion_run as _ingestion_run  # noqa: F401
 from app.models import page as _page  # noqa: F401
 from app.models import product as _product  # noqa: F401
 from app.models import source as _source  # noqa: F401
-from app.models import tracking as _tracking  # noqa: F401
 from app.models import store as _store  # noqa: F401
+from app.models import tracking as _tracking  # noqa: F401
 from app.models import user as _user  # noqa: F401
 
 config = context.config

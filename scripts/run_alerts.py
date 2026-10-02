@@ -1,6 +1,6 @@
 """Scan all tracked products and fire due alerts. Cron alongside refresh_coupons.py:
 
-    5,35 * * * * docker compose exec -T app python scripts/run_alerts.py
+5,35 * * * * docker compose exec -T app python scripts/run_alerts.py
 """
 
 import asyncio
