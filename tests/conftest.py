@@ -17,12 +17,14 @@ from app.models import ad as _ad  # noqa: F401
 from app.models import category as _category  # noqa: F401
 from app.models import coupon as _coupon  # noqa: F401
 from app.models import ingestion_run as _ingestion_run  # noqa: F401
+from app.models import job as _job  # noqa: F401
 from app.models import page as _page  # noqa: F401
 from app.models import product as _product  # noqa: F401
 from app.models import source as _source  # noqa: F401
 from app.models import store as _store  # noqa: F401
 from app.models import tracking as _tracking  # noqa: F401
 from app.models import user as _user  # noqa: F401
+from app.models import verification_attempt as _verification_attempt  # noqa: F401
 from app.models.user import Role
 from app.schemas.user import UserCreate
 from app.services import user_service

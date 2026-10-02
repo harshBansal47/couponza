@@ -85,6 +85,10 @@ class AlertEvent(Base, UUIDPKMixin, TimestampMixin):
     )
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Whether the channel actually accepted the send. Every attempt is recorded
+    # — otherwise "I never got that email" is unfalsifiable — but a failed send
+    # should be visibly different from a delivered one in the history.
+    delivered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Which observation this alert is about — we only re-alert when it changes.
     price_point_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("price_points.id", ondelete="SET NULL"), nullable=True

@@ -5,6 +5,7 @@ from app.models.category import Category
 from app.models.coupon import Coupon
 from app.models.coupon_verification import CouponVerification
 from app.models.ingestion_run import IngestionRun
+from app.models.job import JobRun, JobStatus
 from app.models.page import Page
 from app.models.product import PricePoint, Product
 from app.models.source import Source
@@ -18,14 +19,18 @@ from app.models.tracking import (
     TrackedProduct,
 )
 from app.models.user import User
+from app.models.verification_attempt import AttemptOutcome, VerificationAttempt
 
 __all__ = [
     "Ad",
     "AlertEvent",
+    "AttemptOutcome",
     "Category",
     "Coupon",
     "CouponVerification",
     "IngestionRun",
+    "JobRun",
+    "JobStatus",
     "NotificationPreference",
     "Page",
     "PricePoint",
@@ -37,4 +42,5 @@ __all__ = [
     "TrackAlertState",
     "TrackedProduct",
     "User",
+    "VerificationAttempt",
 ]

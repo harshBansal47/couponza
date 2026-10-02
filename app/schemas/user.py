@@ -21,3 +21,17 @@ class UserRead(BaseModel):
     role: Role
     is_active: bool
     created_at: datetime
+
+
+class UserUpdate(BaseModel):
+    """Self-service profile edits.
+
+    Email is deliberately absent: changing an address needs re-verification, and
+    half-implementing it would let someone lock themselves out of their alerts.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    current_password: str | None = None

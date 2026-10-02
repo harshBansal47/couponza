@@ -95,6 +95,7 @@ async def test_category_autocomplete(client, admin_headers):
     assert "Electronics Accessories" in data
     assert "Fashion" not in data
 
+
 async def test_category_autocomplete_limit(client, admin_headers):
     for i in range(15):
         await client.post(API, json={"name": f"Category {i}"}, headers=admin_headers)

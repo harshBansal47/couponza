@@ -149,7 +149,7 @@ async def test_price_point_requires_real_coupon(
 
 async def test_product_autocomplete(client: AsyncClient, admin_headers, async_session_maker):
     store, cat = await _make_store_and_category(async_session_maker)
-    
+
     for name in ("Kurta Red", "Kurta Blue", "Jeans Black", "Shoes White"):
         await client.post(
             "/api/v1/products",
@@ -165,9 +165,10 @@ async def test_product_autocomplete(client: AsyncClient, admin_headers, async_se
     assert "Kurta Blue" in data
     assert "Jeans Black" not in data
 
+
 async def test_product_autocomplete_limit(client: AsyncClient, admin_headers, async_session_maker):
     store, cat = await _make_store_and_category(async_session_maker)
-    
+
     for i in range(15):
         await client.post(
             "/api/v1/products",

@@ -97,6 +97,11 @@ async def test_client_report_verification_updates_success_rate(client, admin_hea
 
 
 async def test_server_registers_all_five_tools():
+    # `mcp` is an optional extra (`pip install -e ".[mcp]"`), so the rest of the
+    # suite must not depend on it. Skip rather than fail: CI installs the dev
+    # extra only, and a missing optional integration is not a regression.
+    pytest.importorskip("mcp", reason="requires the optional 'mcp' extra")
+
     from mcp_server.server import mcp
 
     tools = await mcp.list_tools()

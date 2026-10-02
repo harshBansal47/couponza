@@ -28,7 +28,9 @@ async def _user_headers(async_session_maker) -> dict[str, str]:
 async def _store_cat_product(client, admin_headers, async_session_maker):
     async with async_session_maker() as db:
         store = Store(name="Myntra", slug=f"myntra-{uuid.uuid4().hex[:6]}")
-        cat = Category(name=f"Fashion-{uuid.uuid4().hex[:6]}", slug=f"fashion-{uuid.uuid4().hex[:6]}")
+        cat = Category(
+            name=f"Fashion-{uuid.uuid4().hex[:6]}", slug=f"fashion-{uuid.uuid4().hex[:6]}"
+        )
         db.add_all([store, cat])
         await db.commit()
         await db.refresh(store)
@@ -47,9 +49,13 @@ async def test_saved_stores_and_coupons(client: AsyncClient, admin_headers, asyn
     store, _cat, _product_id = await _store_cat_product(client, admin_headers, async_session_maker)
     headers = await _user_headers(async_session_maker)
 
-    assert (await client.post(f"/api/v1/me/saved-stores/{store.id}", headers=headers)).status_code == 201
+    assert (
+        await client.post(f"/api/v1/me/saved-stores/{store.id}", headers=headers)
+    ).status_code == 201
     # Saving twice is idempotent.
-    assert (await client.post(f"/api/v1/me/saved-stores/{store.id}", headers=headers)).status_code == 201
+    assert (
+        await client.post(f"/api/v1/me/saved-stores/{store.id}", headers=headers)
+    ).status_code == 201
     saved = (await client.get("/api/v1/me/saved-stores", headers=headers)).json()
     assert len(saved) == 1 and saved[0]["item_id"] == str(store.id)
 
@@ -57,7 +63,9 @@ async def test_saved_stores_and_coupons(client: AsyncClient, admin_headers, asyn
     assert (await client.get("/api/v1/me/saved-stores", headers=headers)).json() == []
 
 
-async def test_track_product_and_target_update(client: AsyncClient, admin_headers, async_session_maker):
+async def test_track_product_and_target_update(
+    client: AsyncClient, admin_headers, async_session_maker
+):
     _, _, product_id = await _store_cat_product(client, admin_headers, async_session_maker)
     headers = await _user_headers(async_session_maker)
 

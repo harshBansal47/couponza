@@ -1,4 +1,25 @@
 import pytest
+from httpx import AsyncClient
+
+
+async def _signed_in(
+    client: AsyncClient, email: str, full_name: str | None = None
+) -> dict[str, str]:
+    """Register, sign in, and return auth headers for that account.
+
+    Goes through the real login flow rather than minting a token by hand, so
+    these tests exercise the credentials the API actually accepts.
+    """
+    await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "supersecret123", "full_name": full_name},
+    )
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": email, "password": "supersecret123"},
+    )
+    assert login_resp.status_code == 200
+    return {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
 
 
 @pytest.mark.asyncio
@@ -133,3 +154,114 @@ async def test_access_token_rejected_by_refresh_endpoint(client):
 
     resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": access_token})
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_me_changes_display_name(client):
+    """PATCH /auth/me is how a user sets the name shown in the header."""
+    headers = await _signed_in(client, "profile@example.com")
+
+    response = await client.patch(
+        "/api/v1/auth/me", json={"full_name": "Ada Lovelace"}, headers=headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "Ada Lovelace"
+
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    assert me.json()["full_name"] == "Ada Lovelace"
+
+
+@pytest.mark.asyncio
+async def test_update_me_clears_display_name(client):
+    headers = await _signed_in(client, "clearname@example.com", full_name="Temporary")
+
+    response = await client.patch("/api/v1/auth/me", json={"full_name": ""}, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_me_rejects_password_change_without_current_password(client):
+    """Changing a password must be proven, or a stolen session could lock the owner out."""
+    headers = await _signed_in(client, "nopassword@example.com")
+
+    response = await client.patch(
+        "/api/v1/auth/me",
+        json={"password": "brand-new-password"},
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert "current password" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_update_me_rejects_wrong_current_password(client):
+    headers = await _signed_in(client, "wrongcurrent@example.com")
+
+    response = await client.patch(
+        "/api/v1/auth/me",
+        json={"password": "brand-new-password", "current_password": "not-the-password"},
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_me_changes_password(client):
+    headers = await _signed_in(client, "rotate@example.com")
+
+    accepted = await client.patch(
+        "/api/v1/auth/me",
+        json={"password": "brand-new-password", "current_password": "supersecret123"},
+        headers=headers,
+    )
+    assert accepted.status_code == 200
+
+    stale = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "rotate@example.com", "password": "supersecret123"},
+    )
+    assert stale.status_code == 401
+
+    fresh = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "rotate@example.com", "password": "brand-new-password"},
+    )
+    assert fresh.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_me_rejects_unknown_fields(client):
+    """Role and email must not be settable through the profile endpoint."""
+    headers = await _signed_in(client, "escalate@example.com")
+
+    response = await client.patch(
+        "/api/v1/auth/me",
+        json={"email": "someone-else@example.com", "role": "admin"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_me_rejects_short_password(client):
+    headers = await _signed_in(client, "short@example.com")
+
+    response = await client.patch(
+        "/api/v1/auth/me",
+        json={"password": "short", "current_password": "supersecret123"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_me_requires_authentication(client):
+    response = await client.patch("/api/v1/auth/me", json={"full_name": "Nobody"})
+    assert response.status_code == 401

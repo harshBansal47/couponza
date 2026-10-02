@@ -16,7 +16,7 @@ from app.core.security import (
 )
 from app.models.user import Role, User
 from app.schemas.auth import RefreshRequest, Token
-from app.schemas.user import UserCreate, UserRead
+from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.services import user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -88,6 +88,21 @@ async def refresh(
 @router.get("/me", response_model=UserRead)
 async def read_me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
+
+
+@router.patch("/me", response_model=UserRead)
+@limiter.limit("10/minute")
+async def update_me(
+    request: Request,
+    payload: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Self-service profile edit: display name and password."""
+    try:
+        return await user_service.update_user(db, current_user, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/admin-ping")
