@@ -98,7 +98,6 @@ def render_reset_text(content: ResetPasswordContent, recipient: str) -> str:
     return _wrap("\n".join(lines))
 
 
-
 def render_reset_html(content: ResetPasswordContent, recipient: str) -> str:
     def esc(value: str) -> str:
         return (

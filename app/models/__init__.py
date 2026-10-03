@@ -3,6 +3,7 @@
 from app.models.ad import Ad
 from app.models.category import Category
 from app.models.click import ClickEvent
+from app.models.conversion import Conversion, ConversionStatus
 from app.models.coupon import Coupon
 from app.models.coupon_verification import CouponVerification
 from app.models.ingestion_run import IngestionRun
@@ -28,6 +29,8 @@ __all__ = [
     "AttemptOutcome",
     "Category",
     "ClickEvent",
+    "Conversion",
+    "ConversionStatus",
     "Coupon",
     "CouponVerification",
     "IngestionRun",
