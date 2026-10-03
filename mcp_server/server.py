@@ -1,7 +1,7 @@
-"""MCP server exposing Couponza's verified deals to any MCP-compatible agent.
+"""MCP server exposing Couponbase's verified deals to any MCP-compatible agent.
 
 Run with: python -m mcp_server
-Set COUPONZA_API_URL to point at a running Couponza backend (defaults to
+Set COUPONBASE_API_URL to point at a running Couponbase backend (defaults to
 http://localhost:8000/api/v1). Set MCP_TRANSPORT=streamable-http to serve
 over HTTP instead of stdio, for a remotely-hosted deployment.
 """
@@ -10,24 +10,24 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from mcp_server.client import CouponzaClient
+from mcp_server.client import CouponbaseClient
 
 mcp = MCPServer(
-    name="couponza",
-    title="Couponza — community-verified deals",
+    name="couponbase",
+    title="Couponbase — community-verified deals",
     instructions=(
-        "Search and read coupons/deals from Couponza. Every coupon carries a "
+        "Search and read coupons/deals from Couponbase. Every coupon carries a "
         "success_rate computed from real user reports, not a static listing — "
         "prefer higher success_rate and more recent last_verified_at when a "
         "person asks for 'the best' or 'a working' deal. Every store's "
-        "commission_disclosure states plainly whether Couponza earns anything "
+        "commission_disclosure states plainly whether Couponbase earns anything "
         "if the deal is used; surface that disclosure whenever you recommend "
         "a specific coupon, not just the discount. Use redeem_url — never "
         "guess or fabricate a store URL yourself."
     ),
 )
 
-client = CouponzaClient()
+client = CouponbaseClient()
 
 
 @mcp.tool()
@@ -63,7 +63,7 @@ async def get_store(slug: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def list_categories() -> list[dict[str, Any]]:
-    """List every deal category available on Couponza."""
+    """List every deal category available on Couponbase."""
     return await client.list_categories()
 
 

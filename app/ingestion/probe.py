@@ -7,7 +7,7 @@ import httpx
 from app.ingestion.retry import with_retries
 
 PROBE_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
-_USER_AGENT = "CouponzaBot/1.0 (+https://couponza.example.com/bot)"
+_USER_AGENT = "CouponbaseBot/1.0 (+https://couponbase.example.com/bot)"
 
 
 async def probe_destination(url: str) -> tuple[bool, str | None]:

@@ -18,7 +18,7 @@ class Store(Base, UUIDPKMixin, TimestampMixin):
     # Falls back to a sitewide default in the frontend when null — see the Trust page.
     commission_disclosure: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Market data. Couponza lists stores per country, so a store carries the
+    # Market data. Couponbase lists stores per country, so a store carries the
     # market it belongs to: ISO 3166-1 alpha-2 for routing/sitemaps, ISO 4217
     # for rendering prices. Both nullable — a global store (Amazon) may not
     # belong to one market.

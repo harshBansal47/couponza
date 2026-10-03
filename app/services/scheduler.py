@@ -1,4 +1,4 @@
-"""The scheduled work Couponza runs on itself.
+"""The scheduled work Couponbase runs on itself.
 
 Replaces the host-level cron scripts. The reason is not elegance: with cron,
 whether ingestion runs at all depends on somebody having configured a crontab
@@ -45,7 +45,7 @@ from app.services.alert_service import run_alert_scan
 from app.services.lifecycle_service import expire_stale_coupons, refresh_coupon_prices
 from app.services.verification_service import run_sweep as run_verification_sweep
 
-logger = get_logger("couponza.scheduler")
+logger = get_logger("couponbase.scheduler")
 
 # Postgres advisory locks take a signed 64-bit integer. Any stable constant
 # works; these just need to be distinct from each other.

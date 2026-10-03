@@ -1,11 +1,11 @@
-# Couponza — Phases 0–5 (backend)
+# Couponbase — Phases 0–5 (backend)
 
 Bootstrap (Phase 0), core infra (Phase 1), auth + RBAC (Phase 2), the core
 domain API (Phase 3), the admin back office (Phase 4), and now the public-API
 foundation for the frontend (Phase 5): commission disclosure, community
 verification, and a redirect endpoint that finally hides `destination_url`
 from anonymous requests. The actual public website lives in the sibling
-`couponza-web` project (Next.js) and calls this API — nothing here renders
+`couponbase-web` project (Next.js) and calls this API — nothing here renders
 HTML for visitors.
 
 ## Prerequisites
@@ -143,7 +143,7 @@ An MCP server (`mcp_server/`) exposes the same verified data as the JSON API,
 but as tools any MCP-compatible agent (Claude, or others) can call directly —
 rather than needing to scrape rendered HTML the way a generic web agent
 would. It's a thin layer: `mcp_server/client.py` talks to this API over plain
-HTTP, the same way `couponza-web` does; no database access, no duplicated
+HTTP, the same way `couponbase-web` does; no database access, no duplicated
 business logic.
 
 **Tools exposed:** `search_coupons`, `get_coupon`, `get_store`,
@@ -165,7 +165,7 @@ MCP_TRANSPORT=streamable-http python -m mcp_server   # for a remote deployment
 ```json
 {
   "mcpServers": {
-    "couponza": {
+    "couponbase": {
       "command": "python",
       "args": ["-m", "mcp_server"],
       "env": { "COUPONZA_API_URL": "http://localhost:8000/api/v1" }
@@ -182,7 +182,7 @@ its user, not just to the rendered page.
 
 ## Frontend
 
-The public website is a separate project: `../couponza-web` (Next.js). It
+The public website is a separate project: `../couponbase-web` (Next.js). It
 calls this API's public endpoints directly and never touches the database.
 See its own README for setup.
 
