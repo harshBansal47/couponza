@@ -20,6 +20,7 @@ from app.core.security import hash_password
 from app.core.slugs import generate_unique_slug
 from app.models.ad import Ad
 from app.models.category import Category
+from app.models.click import ClickEvent
 from app.models.coupon import Coupon
 from app.models.ingestion_run import IngestionRun
 from app.models.job import JobRun, JobStatus
@@ -116,6 +117,9 @@ class StoreAdmin(StaffModelView, model=Store):
         Store.website_url,
         Store.description,
         Store.commission_disclosure,
+        Store.affiliate_network,
+        Store.link_template,
+        Store.cookie_days,
         Store.is_active,
     ]
     slug_source = "name"
@@ -447,6 +451,7 @@ class JobRunAdmin(StaffModelView, model=JobRun):
                 ("refresh_prices", "refresh_prices"),
                 ("send_alerts", "send_alerts"),
                 ("verify_coupons", "verify_coupons"),
+                ("scrub_clicks", "scrub_clicks"),
             ],
             title="Job",
         ),
@@ -520,6 +525,29 @@ class VerificationAttemptAdmin(StaffModelView, model=VerificationAttempt):
     page_size = 50
 
 
+class ClickEventAdmin(StaffModelView, model=ClickEvent):
+    """Outbound clicks, newest first. Recorded data: view and filter only."""
+
+    name = "Click"
+    name_plural = "Clicks"
+    icon = "fa-solid fa-arrow-pointer"
+
+    column_list = [
+        ClickEvent.created_at,
+        ClickEvent.src,
+        ClickEvent.network,
+        ClickEvent.is_bot,
+        ClickEvent.coupon_id,
+        ClickEvent.product_id,
+        ClickEvent.clickref,
+    ]
+    column_searchable_list = [ClickEvent.clickref, ClickEvent.src]
+    column_sortable_list = [ClickEvent.created_at, ClickEvent.src, ClickEvent.network]
+    column_default_sort = [(ClickEvent.created_at, True)]
+    can_create = False
+    can_edit = False
+
+
 ALL_VIEWS = (
     CategoryAdmin,
     StoreAdmin,
@@ -533,4 +561,5 @@ ALL_VIEWS = (
     PricePointAdmin,
     JobRunAdmin,
     VerificationAttemptAdmin,
+    ClickEventAdmin,
 )

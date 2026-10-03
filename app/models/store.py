@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -17,6 +17,17 @@ class Store(Base, UUIDPKMixin, TimestampMixin):
     # Optional per-store note, e.g. "We earn a commission from Amazon on this link."
     # Falls back to a sitewide default in the frontend when null — see the Trust page.
     commission_disclosure: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Affiliate wiring. `affiliate_network` picks how the click reference is
+    # attached to outbound links; `link_template` overrides it for programmes
+    # that need a deeplink wrapper (see app/services/affiliate.py). Never
+    # exposed by the public API.
+    affiliate_network: Mapped[str] = mapped_column(
+        String(20), default="none", server_default="none", nullable=False
+    )
+    link_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Informational: how long the network credits a click, for revenue analysis.
+    cookie_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Market data. Couponbase lists stores per country, so a store carries the
     # market it belongs to: ISO 3166-1 alpha-2 for routing/sitemaps, ISO 4217

@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.services.affiliate import AffiliateNetwork
+
 
 def _validate_country(value: str | None) -> str | None:
     if value is None:
@@ -22,6 +24,25 @@ def _validate_currency(value: str | None) -> str | None:
     return code
 
 
+def _validate_network(value: str | None) -> str | None:
+    if value is None:
+        return None
+    network = value.strip().lower()
+    if network not in {n.value for n in AffiliateNetwork}:
+        allowed = ", ".join(n.value for n in AffiliateNetwork)
+        raise ValueError(f"affiliate_network must be one of: {allowed}")
+    return network
+
+
+def _validate_template(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    template = value.strip()
+    if not template.lower().startswith(("http://", "https://")):
+        raise ValueError("link_template must start with http:// or https://")
+    return template
+
+
 class StoreCreate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     logo_url: str | None = None
@@ -30,9 +51,14 @@ class StoreCreate(BaseModel):
     commission_disclosure: str | None = None
     country_code: str | None = None
     currency: str | None = None
+    affiliate_network: str | None = Field(default=None)
+    link_template: str | None = Field(default=None, max_length=1000)
+    cookie_days: int | None = Field(default=None, ge=0, le=365)
 
     _check_country = field_validator("country_code")(_validate_country)
     _check_currency = field_validator("currency")(_validate_currency)
+    _check_network = field_validator("affiliate_network")(_validate_network)
+    _check_template = field_validator("link_template")(_validate_template)
 
 
 class StoreUpdate(BaseModel):
@@ -44,9 +70,14 @@ class StoreUpdate(BaseModel):
     commission_disclosure: str | None = None
     country_code: str | None = None
     currency: str | None = None
+    affiliate_network: str | None = None
+    link_template: str | None = Field(default=None, max_length=1000)
+    cookie_days: int | None = Field(default=None, ge=0, le=365)
 
     _check_country = field_validator("country_code")(_validate_country)
     _check_currency = field_validator("currency")(_validate_currency)
+    _check_network = field_validator("affiliate_network")(_validate_network)
+    _check_template = field_validator("link_template")(_validate_template)
 
 
 class StoreRead(BaseModel):

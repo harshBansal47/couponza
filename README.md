@@ -382,3 +382,26 @@ web-push delivery, the browser extension itself.
 - Frontend product page: price-history chart, effective-price block, "90-day low" badge.
 - A price-source adapter feeding `record_price` automatically (same `Source`/feed
   machinery as ingestion) — this is also what starts real alert traffic.
+
+## Click tracking and affiliate links
+
+Every outbound click goes through a redirect, so each one is recorded and can be
+tied to an affiliate sale later:
+
+- `GET /api/v1/coupons/{id}/go?src=<tag>` and `GET /api/v1/products/{id}/go?src=<tag>`
+  record a `ClickEvent`, build the outbound URL for the store's network, and 302.
+  `src` is a short tag for the page that sent the click (`coupon-page`, `email`, ...);
+  anything that is not a short lowercase tag is stored as `unknown`.
+- Each click gets a unique `clickref`, appended to the outbound link
+  (`clickref` for Awin, `subid` for Cuelinks/Admitad, `subId1` for Impact). The network
+  returns it on its transaction report, which is how revenue is matched to a coupon.
+- Per-store settings (admin, never in public JSON): `affiliate_network`, optional
+  `link_template` (placeholders `{url}`, `{raw_url}`, `{clickref}`), `cookie_days`.
+  See `app/services/affiliate.py`.
+- `product.url` is no longer returned by the public API (`has_url` says whether a
+  buy link exists); the only way to reach the store is `/products/{id}/go`.
+- Privacy: only a salted one-way hash of the IP is stored, and the `scrub_clicks` job
+  nulls it after `CLICK_RETENTION_DAYS` (default 90). The click row stays so revenue
+  attribution keeps working.
+- Rapid repeats from the same visitor within 10 seconds are one click and reuse the
+  same reference. Bots are flagged on the row (`is_bot`), not dropped.

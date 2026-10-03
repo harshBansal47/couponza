@@ -30,7 +30,9 @@ class ProductRead(BaseModel):
     slug: str
     store_id: uuid.UUID
     category_id: uuid.UUID
-    url: str | None
+    # The raw store URL is deliberately absent: it is reachable only through
+    # GET /products/{id}/go so every outbound click is tracked.
+    has_url: bool
     image_url: str | None
     currency: str
     current_price: float | None

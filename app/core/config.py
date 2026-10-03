@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # How often to re-check live coupon codes. Infrequent by default: these
     # checks hit merchant sites, and hammering them gets us blocklisted.
     verification_interval_hours: int = 12
+    # Click events keep their visitor hash this long, then it is nulled (the row
+    # stays, so revenue can still be attributed). Matches the privacy page.
+    click_retention_days: int = 90
+    click_scrub_interval_hours: int = 24
     # Only one worker may run a given job at a time. Without this, every
     # uvicorn replica would duplicate the whole ingestion sweep.
     scheduler_lock_ttl_seconds: int = 900

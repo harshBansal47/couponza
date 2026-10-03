@@ -39,6 +39,8 @@ _STALE_AFTER = {
     # Generous: verification is a background quality signal, not a
     # user-visible promise, and a missed sweep costs nothing for a day.
     "verify_coupons": timedelta(days=2),
+    # Daily privacy housekeeping; a missed day is harmless, a missed week is not.
+    "scrub_clicks": timedelta(days=3),
 }
 
 

@@ -53,6 +53,9 @@ async def create_store(db: AsyncSession, payload: StoreCreate) -> Store:
         commission_disclosure=payload.commission_disclosure,
         country_code=payload.country_code,
         currency=payload.currency,
+        affiliate_network=payload.affiliate_network or "none",
+        link_template=payload.link_template,
+        cookie_days=payload.cookie_days,
     )
     db.add(store)
     await db.commit()
@@ -64,6 +67,9 @@ async def update_store(db: AsyncSession, store: Store, payload: StoreUpdate) -> 
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] != store.name:
         data["slug"] = await generate_unique_slug(db, Store, data["name"], exclude_id=store.id)
+    # The column is NOT NULL; an explicit null from a client means "reset".
+    if "affiliate_network" in data and data["affiliate_network"] is None:
+        data["affiliate_network"] = "none"
     for field, value in data.items():
         setattr(store, field, value)
     await db.commit()

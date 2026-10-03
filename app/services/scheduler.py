@@ -53,6 +53,7 @@ _LOCK_EXPIRE = 0x0C0FFEE0
 _LOCK_REFRESH = 0x0C0FFEE1
 _LOCK_ALERTS = 0x0C0FFEE2
 _LOCK_VERIFY = 0x0C0FFEE3
+_LOCK_SCRUB_CLICKS = 0x0C0FFEE4
 
 
 # A job that fails is recorded and re-raised so the caller can distinguish "ran
@@ -81,11 +82,19 @@ async def _verify_job(db: AsyncSession) -> str:
     )
 
 
+async def _scrub_clicks_job(db: AsyncSession) -> str:
+    from app.services.click_service import scrub_visitor_hashes
+
+    scrubbed = await scrub_visitor_hashes(db, older_than_days=get_settings().click_retention_days)
+    return f"scrubbed {scrubbed} visitor hash(es)"
+
+
 JOBS: dict[str, tuple[Callable[[AsyncSession], Awaitable[str]], int]] = {
     "expire_coupons": (_expire_job, _LOCK_EXPIRE),
     "refresh_prices": (_refresh_job, _LOCK_REFRESH),
     "send_alerts": (_alerts_job, _LOCK_ALERTS),
     "verify_coupons": (_verify_job, _LOCK_VERIFY),
+    "scrub_clicks": (_scrub_clicks_job, _LOCK_SCRUB_CLICKS),
 }
 
 
@@ -129,6 +138,7 @@ def job_interval_seconds(name: str) -> float:
         "expire_coupons": settings.expire_interval_hours,
         "refresh_prices": settings.ingestion_interval_hours,
         "verify_coupons": settings.verification_interval_hours,
+        "scrub_clicks": settings.click_scrub_interval_hours,
     }
     if name in hourly:
         return hourly[name] * 3600
@@ -403,6 +413,16 @@ def build_scheduler() -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
         next_run_time=datetime.now(UTC) + timedelta(seconds=offset + 90),
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _fire,
+        IntervalTrigger(hours=settings.click_scrub_interval_hours),
+        args=["scrub_clicks"],
+        id="scrub_clicks",
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=offset + 120),
         replace_existing=True,
     )
     return scheduler

@@ -57,6 +57,12 @@ class Product(Base, UUIDPKMixin, TimestampMixin):
     store: Mapped["Store"] = relationship()
     category: Mapped["Category"] = relationship()
 
+    @property
+    def has_url(self) -> bool:
+        """Whether a buy link exists. The link itself is only reachable via
+        GET /products/{id}/go, never in public JSON."""
+        return bool(self.url)
+
     def __str__(self) -> str:
         return self.name
 

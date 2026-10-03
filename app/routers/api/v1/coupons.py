@@ -20,7 +20,7 @@ from app.schemas.coupon_public import (
     VerifyResponse,
     compute_success_rate,
 )
-from app.services import coupon_service
+from app.services import affiliate, click_service, coupon_service
 from app.services.coupon_service import AlreadyVerifiedRecentlyError
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
@@ -78,14 +78,36 @@ async def get_coupon(coupon_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
 
 @router.get("/{coupon_id}/go", response_class=RedirectResponse, status_code=status.HTTP_302_FOUND)
 async def go_to_coupon(
-    coupon_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    coupon_id: uuid.UUID,
+    request: Request,
+    src: str | None = Query(default=None, max_length=40),
+    db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """The only place destination_url is ever revealed: a redirect, not a JSON field."""
+    """The only place destination_url is ever revealed: a redirect, not a JSON field.
+
+    Each hit is recorded as a ClickEvent and the outbound URL carries that
+    click's reference, so a later network sale can be traced back to this
+    coupon and to the page (`?src=`) that sent the visitor.
+    """
     coupon = await coupon_service.get_coupon(db, coupon_id)
     if coupon is None or not coupon.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coupon not found")
-    await coupon_service.record_click(db, coupon)
-    return RedirectResponse(coupon.destination_url, status_code=status.HTTP_302_FOUND)
+    store = await click_service.get_store(db, coupon.store_id)
+    click, _ = await click_service.record_click(
+        db,
+        store=store,
+        coupon=coupon,
+        src=src,
+        visitor_hash=hash_ip(client_ip(request)),
+        user_agent=request.headers.get("user-agent"),
+    )
+    target = affiliate.build_outbound_url(
+        coupon.destination_url,
+        network=store.affiliate_network if store else None,
+        link_template=store.link_template if store else None,
+        clickref=click.clickref,
+    )
+    return RedirectResponse(target, status_code=status.HTTP_302_FOUND)
 
 
 @router.post("/{coupon_id}/verify", response_model=VerifyResponse)

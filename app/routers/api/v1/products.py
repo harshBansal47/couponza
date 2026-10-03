@@ -1,12 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import require_role
 from app.core.exceptions import EntityNotFoundError
 from app.core.pagination import Paginated
+from app.core.request_meta import client_ip, hash_ip
 from app.models.coupon import Coupon
 from app.models.product import Product
 from app.models.user import Role, User
@@ -17,7 +19,7 @@ from app.schemas.product import (
     ProductRead,
     ProductUpdate,
 )
-from app.services import price_service
+from app.services import affiliate, click_service, price_service
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -76,6 +78,35 @@ async def get_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     return await _with_effective(db, product)
+
+
+@router.get("/{product_id}/go", response_class=RedirectResponse, status_code=status.HTTP_302_FOUND)
+async def go_to_product(
+    product_id: uuid.UUID,
+    request: Request,
+    src: str | None = Query(default=None, max_length=40),
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Tracked redirect to the store's product page. The raw URL is never in JSON."""
+    product = await price_service.get_product(db, product_id)
+    if product is None or not product.url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+    store = await click_service.get_store(db, product.store_id)
+    click, _ = await click_service.record_click(
+        db,
+        store=store,
+        product=product,
+        src=src,
+        visitor_hash=hash_ip(client_ip(request)),
+        user_agent=request.headers.get("user-agent"),
+    )
+    target = affiliate.build_outbound_url(
+        product.url,
+        network=store.affiliate_network if store else None,
+        link_template=store.link_template if store else None,
+        clickref=click.clickref,
+    )
+    return RedirectResponse(target, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/{product_id}/price-history", response_model=list[PricePointRead])
